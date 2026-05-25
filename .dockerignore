@@ -1,0 +1,12 @@
+.git
+__pycache__
+*.pyc
+.venv*
+affordance-learning
+upstream-aff-grasp
+third_party
+datasets
+results
+*.pth
+*.pt
+*.ckpt
