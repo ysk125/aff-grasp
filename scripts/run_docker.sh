@@ -11,6 +11,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -it --rm \
   --workdir "${ROOT_DIR}" \
   --env CUDA_DEVICE_ORDER=PCI_BUS_ID \
   --env CUDA_VISIBLE_DEVICES=0 \
+  --env LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:${LD_LIBRARY_PATH:-}" \
   --env OMP_NUM_THREADS=4 \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
