@@ -170,6 +170,9 @@ def main() -> int:
         raw_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = TestData(data_root=args.data_root, crop_size=args.crop_size, test_dir=args.test_dir)
+    dataset.img_list = sorted(
+        name for name in dataset.img_list if Path(name).suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
+    )
     loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
 
     model = Net().cuda()
