@@ -99,7 +99,9 @@ def main() -> int:
     allow_patterns = None
     if args.eval_only:
         allow_patterns = [
+            "Data_for-Aff-Grasp/Affordance_Evaluation_Dataset/**",
             "Data_for_Aff-Grasp/Affordance_Evaluation_Dataset/**",
+            "Data_for_Aff_Grasp/Affordance_Evaluation_Dataset/**",
             "Affordance_Evaluation_Dataset/**",
         ]
     data_snapshot = Path(
