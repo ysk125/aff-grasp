@@ -8,7 +8,8 @@ bash tools/setup_upstream_aff_grasp.sh
 
 echo "== build Aff-Grasp CUDA extension =="
 cd "${ROOT_DIR}/affordance-learning/models/dino/ops"
-python setup.py build install
+rm -rf build
+python setup.py install --user
 
 echo "== download AED/model/DINOv2 assets =="
 cd "${ROOT_DIR}"
