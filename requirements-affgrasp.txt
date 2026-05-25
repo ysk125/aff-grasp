@@ -9,4 +9,5 @@ peft
 timm
 xformers
 huggingface_hub
+hf_xet
 ninja
