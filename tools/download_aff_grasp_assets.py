@@ -79,6 +79,11 @@ def main() -> int:
     parser.add_argument("--aff-root", default="affordance-learning")
     parser.add_argument("--cache-dir", default="third_party/aff-grasp-assets")
     parser.add_argument("--copy", action="store_true", help="Copy files instead of creating links.")
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Download only Affordance_Evaluation_Dataset instead of the full dataset repo.",
+    )
     parser.add_argument("--skip-dino", action="store_true")
     args = parser.parse_args()
 
@@ -91,12 +96,19 @@ def main() -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Downloading dataset repo: {DATA_REPO}")
+    allow_patterns = None
+    if args.eval_only:
+        allow_patterns = [
+            "Data_for_Aff-Grasp/Affordance_Evaluation_Dataset/**",
+            "Affordance_Evaluation_Dataset/**",
+        ]
     data_snapshot = Path(
         snapshot_download(
             DATA_REPO,
             repo_type="dataset",
             local_dir=cache_dir / "Data_for_Aff-Grasp",
             local_dir_use_symlinks=False,
+            allow_patterns=allow_patterns,
         )
     )
 
@@ -110,11 +122,16 @@ def main() -> int:
         )
     )
 
-    for dirname, dst in (
-        ("Affordance_Evaluation_Dataset", data_root / "Affordance_Evaluation_Dataset"),
-        ("ego_train", data_root / "ego_train"),
-        ("depth", aff_root / "depth"),
-    ):
+    required_dirs = [("Affordance_Evaluation_Dataset", data_root / "Affordance_Evaluation_Dataset")]
+    if not args.eval_only:
+        required_dirs.extend(
+            [
+                ("ego_train", data_root / "ego_train"),
+                ("depth", aff_root / "depth"),
+            ]
+        )
+
+    for dirname, dst in required_dirs:
         src = _find_dir(data_snapshot, dirname)
         if src is None:
             print(f"Warning: could not find dataset directory named {dirname}", file=sys.stderr)
