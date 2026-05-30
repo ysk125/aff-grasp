@@ -16,12 +16,8 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import sys
 import urllib.request
 from pathlib import Path
-
-from huggingface_hub import snapshot_download
-
 
 DATA_REPO = "Gen1113/Data_for_Aff-Grasp"
 MODEL_REPO = "Gen1113/Model_for_Aff-Grasp"
@@ -32,7 +28,11 @@ DINO_URL = (
 
 
 def _link_or_copy(src: Path, dst: Path, copy: bool) -> None:
-    if dst.exists() or dst.is_symlink():
+    if dst.is_symlink():
+        if dst.exists() and dst.resolve() == src.resolve():
+            return
+        dst.unlink()
+    elif dst.exists():
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
     if copy:
@@ -52,10 +52,10 @@ def _link_or_copy(src: Path, dst: Path, copy: bool) -> None:
 
 
 def _find_dir(root: Path, name: str) -> Path | None:
-    for path in root.rglob(name):
-        if path.is_dir():
-            return path
-    return None
+    candidates = [path for path in root.rglob(name) if path.is_dir()]
+    if name == "depth":
+        candidates = [path for path in candidates if "Affordance_Evaluation_Dataset" not in path.parts]
+    return sorted(candidates, key=lambda path: (len(path.parts), path.as_posix()))[0] if candidates else None
 
 
 def _find_checkpoint(root: Path) -> Path | None:
@@ -64,6 +64,43 @@ def _find_checkpoint(root: Path) -> Path | None:
         candidates.extend(root.rglob(suffix))
     non_dino = [p for p in candidates if "dinov2" not in p.name.lower()]
     return sorted(non_dino or candidates, key=lambda p: p.stat().st_size, reverse=True)[0] if candidates else None
+
+
+def _count_files(root: Path, pattern: str) -> int:
+    return sum(1 for path in root.rglob(pattern) if path.is_file() and not path.name.endswith(".metadata"))
+
+
+def _validate_aed(root: Path) -> None:
+    expected = 721
+    checks = {
+        "RGB images": _count_files(root / "JPEGImages", "*.jpg"),
+        "GT arrays": _count_files(root / "SegmentationClassNpy", "*.npy"),
+        "depth images": _count_files(root / "depth", "*.png"),
+    }
+    problems = [f"{label}: expected at least {expected}, found {count}" for label, count in checks.items() if count < expected]
+    if problems:
+        raise RuntimeError(f"Incomplete AED dataset under {root}: " + "; ".join(problems))
+    print("Validated AED: " + ", ".join(f"{label}={count}" for label, count in checks.items()))
+
+
+def _validate_training_data(data_root: Path, aff_root: Path) -> None:
+    train_root = data_root / "ego_train"
+    depth_root = aff_root / "depth"
+    rgb_count = _count_files(train_root, "*-img.jpg")
+    label_count = _count_files(train_root, "*-label.png")
+    depth_count = _count_files(depth_root, "*depth.png")
+    if not rgb_count or not label_count or not depth_count:
+        raise RuntimeError(
+            f"Incomplete training data: RGB={rgb_count}, labels={label_count}, depth={depth_count}. "
+            "Run without --eval-only after the full Hugging Face download finishes."
+        )
+    print(f"Validated training data: RGB={rgb_count}, labels={label_count}, depth={depth_count}")
+
+
+def _validate_checkpoint(path: Path) -> None:
+    if not path.exists() or path.stat().st_size < 1024 * 1024:
+        raise RuntimeError(f"Missing or incomplete model checkpoint: {path}")
+    print(f"Validated checkpoint: {path} ({path.stat().st_size / (1024 * 1024):.1f} MiB)")
 
 
 def _download_dino(dst: Path) -> None:
@@ -75,6 +112,8 @@ def _download_dino(dst: Path) -> None:
 
 
 def main() -> int:
+    from huggingface_hub import snapshot_download
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--aff-root", default="affordance-learning")
     parser.add_argument("--cache-dir", default="third_party/aff-grasp-assets")
@@ -136,10 +175,13 @@ def main() -> int:
     for dirname, dst in required_dirs:
         src = _find_dir(data_snapshot, dirname)
         if src is None:
-            print(f"Warning: could not find dataset directory named {dirname}", file=sys.stderr)
-            continue
+            raise RuntimeError(f"Could not find dataset directory named {dirname} under {data_snapshot}")
         _link_or_copy(src, dst, copy=args.copy)
         print(f"Ready: {dst}")
+
+    _validate_aed(data_root / "Affordance_Evaluation_Dataset")
+    if not args.eval_only:
+        _validate_training_data(data_root, aff_root)
 
     if not args.skip_dino:
         _download_dino(aff_root / "dinov2_vitb14_pretrain.pth")
@@ -149,8 +191,9 @@ def main() -> int:
         dst = aff_root / "pretrained_aff_grasp.pth"
         _link_or_copy(ckpt, dst, copy=args.copy)
         print(f"Ready: {dst}")
+        _validate_checkpoint(dst)
     else:
-        print("Warning: no .pth/.pt/.ckpt model checkpoint found in model repo.", file=sys.stderr)
+        raise RuntimeError("No .pth/.pt/.ckpt model checkpoint found in model repo.")
 
     print("\nNext:")
     print(f"  cd {aff_root}")

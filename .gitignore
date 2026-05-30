@@ -6,6 +6,8 @@ upstream-aff-grasp/
 third_party/
 datasets/
 results/
+analysis/
+result/
 *.pth
 *.pt
 *.ckpt

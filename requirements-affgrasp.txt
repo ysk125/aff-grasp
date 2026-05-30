@@ -5,6 +5,7 @@ opencv-python
 pillow
 tqdm
 matplotlib
+scipy
 peft
 timm
 xformers

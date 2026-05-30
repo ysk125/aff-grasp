@@ -16,4 +16,5 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -it --rm \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
-  "${IMAGE_NAME}"
+  "${IMAGE_NAME}" \
+  bash -lc 'source scripts/affgrasp_env.sh; exec bash'

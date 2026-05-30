@@ -14,12 +14,15 @@ import csv
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
 from tqdm import tqdm
+
+from analysis_common import CLASS_NAMES, git_commit, relative_to, sha256_file, write_json
 
 
 PALETTE = np.array(
@@ -132,6 +135,12 @@ def main() -> int:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--overlay-alpha", type=float, default=0.45)
     parser.add_argument("--save-filter", choices=["all", "low-iou", "none"], default="low-iou")
+    parser.add_argument(
+        "--artifact-profile",
+        choices=["qualitative", "analysis"],
+        default="qualitative",
+        help="analysis saves compact class-ID masks and panels for every AED sample.",
+    )
     parser.add_argument("--iou-threshold", type=float, default=0.60)
     parser.add_argument("--foreground-iou-threshold", type=float, default=0.50)
     parser.add_argument("--always-save-top-k", type=int, default=0)
@@ -143,6 +152,7 @@ def main() -> int:
     if not aff_root.exists():
         raise FileNotFoundError(f"Missing upstream code directory: {aff_root}")
 
+    model_path = (aff_root / args.model_file).resolve()
     os.chdir(aff_root)
     sys.path.insert(0, str(aff_root))
 
@@ -153,20 +163,29 @@ def main() -> int:
     from utils.evaluation import process_seg, scores
 
     if args.output_dir is None:
-        from datetime import datetime
-
         run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = (aff_root / "results" / run_name / "aed").resolve()
+        if args.artifact_profile == "analysis":
+            output_dir = (repo_root / "analysis" / run_name).resolve()
+        else:
+            output_dir = (aff_root / "results" / run_name / "aed").resolve()
     else:
-        output_dir = (aff_root / args.output_dir).resolve()
+        output_base = repo_root if args.artifact_profile == "analysis" else aff_root
+        output_dir = (output_base / args.output_dir).resolve()
     pred_dir = output_dir / "pred_masks"
     overlay_dir = output_dir / "pred_overlays"
     gt_dir = output_dir / "gt_masks"
     panel_dir = output_dir / "panels"
     raw_dir = output_dir / "raw_pred_npy"
-    for path in (pred_dir, overlay_dir, gt_dir, panel_dir):
+    label_pred_dir = output_dir / "label_masks" / "pred"
+    label_gt_dir = output_dir / "label_masks" / "gt"
+    artifact_dirs = [panel_dir]
+    if args.artifact_profile == "analysis":
+        artifact_dirs.extend([label_pred_dir, label_gt_dir, output_dir / "metrics", output_dir / "figures", output_dir / "review"])
+    else:
+        artifact_dirs.extend([pred_dir, overlay_dir, gt_dir])
+    for path in artifact_dirs:
         path.mkdir(parents=True, exist_ok=True)
-    if args.save_raw:
+    if args.save_raw and args.artifact_profile != "analysis":
         raw_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = TestData(data_root=args.data_root, crop_size=args.crop_size, test_dir=args.test_dir)
@@ -176,7 +195,7 @@ def main() -> int:
     loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
 
     model = Net().cuda()
-    checkpoint = torch.load(args.model_file, map_location="cpu")
+    checkpoint = torch.load(model_path, map_location="cpu")
     model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     model.eval()
 
@@ -211,6 +230,8 @@ def main() -> int:
             args.iou_threshold,
             args.foreground_iou_threshold,
         )
+        if args.artifact_profile == "analysis":
+            save_sample, save_reason = True, "analysis"
 
         width, height = _as_int_pair(ori_size)
         name = _as_name(img_name)
@@ -235,15 +256,27 @@ def main() -> int:
             "raw_pred": "",
         }
         if save_sample:
-            paths["pred_mask"] = str(pred_dir / f"{save_stem}_pred.png")
-            paths["pred_overlay"] = str(overlay_dir / f"{save_stem}_overlay.png")
-            paths["gt_mask"] = str(gt_dir / f"{save_stem}_gt.png")
-            paths["panel"] = str(panel_dir / f"{save_stem}_panel.png")
-            pred_rgb.save(paths["pred_mask"])
-            pred_overlay.save(paths["pred_overlay"])
-            gt_rgb.save(paths["gt_mask"])
-            comparison.save(paths["panel"])
-            if args.save_raw:
+            panel_path = panel_dir / f"{save_stem}_panel.png"
+            comparison.save(panel_path)
+            paths["panel"] = relative_to(panel_path, output_dir)
+            if args.artifact_profile == "analysis":
+                pred_path = label_pred_dir / f"{save_stem}_pred.png"
+                gt_path = label_gt_dir / f"{save_stem}_gt.png"
+                Image.fromarray(pred_mask.astype(np.uint8), mode="L").save(pred_path)
+                Image.fromarray(gt_mask.astype(np.uint8), mode="L").save(gt_path)
+                paths["pred_mask"] = relative_to(pred_path, output_dir)
+                paths["gt_mask"] = relative_to(gt_path, output_dir)
+            else:
+                pred_path = pred_dir / f"{save_stem}_pred.png"
+                overlay_path = overlay_dir / f"{save_stem}_overlay.png"
+                gt_path = gt_dir / f"{save_stem}_gt.png"
+                pred_rgb.save(pred_path)
+                pred_overlay.save(overlay_path)
+                gt_rgb.save(gt_path)
+                paths["pred_mask"] = relative_to(pred_path, output_dir)
+                paths["pred_overlay"] = relative_to(overlay_path, output_dir)
+                paths["gt_mask"] = relative_to(gt_path, output_dir)
+            if args.save_raw and args.artifact_profile != "analysis":
                 paths["raw_pred"] = str(raw_dir / f"{save_stem}_pred_norm.npy")
                 np.save(paths["raw_pred"], pred_norm.squeeze(0).detach().cpu().numpy())
             saved_count += 1
@@ -297,10 +330,10 @@ def main() -> int:
                         {
                             "saved": True,
                             "save_reason": "top-k-lowest-miou",
-                            "pred_mask": str(pred_path),
-                            "pred_overlay": str(overlay_path),
-                            "gt_mask": str(gt_path),
-                            "panel": str(panel_path),
+                            "pred_mask": relative_to(pred_path, output_dir),
+                            "pred_overlay": relative_to(overlay_path, output_dir),
+                            "gt_mask": relative_to(gt_path, output_dir),
+                            "panel": relative_to(panel_path, output_dir),
                             "raw_pred": raw_path,
                         }
                     )
@@ -311,6 +344,7 @@ def main() -> int:
     summary = {
         "num_samples": len(rows),
         "threshold": args.threshold,
+        "artifact_profile": args.artifact_profile,
         "save_filter": args.save_filter,
         "iou_threshold": args.iou_threshold,
         "foreground_iou_threshold": args.foreground_iou_threshold,
@@ -327,6 +361,21 @@ def main() -> int:
         writer.writerows(rows)
     with (output_dir / "summary.json").open("w") as f:
         json.dump(summary, f, indent=2)
+    run_config = {
+        "run_id": output_dir.name,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "artifact_profile": args.artifact_profile,
+        "git_commit": git_commit(repo_root),
+        "checkpoint": str(model_path),
+        "checkpoint_sha256": sha256_file(model_path),
+        "aff_root": str(aff_root),
+        "dataset_root": str((aff_root / args.data_root / args.test_dir).resolve()),
+        "threshold": args.threshold,
+        "crop_size": args.crop_size,
+        "class_names": CLASS_NAMES,
+        "depth_feature_injector": True,
+    }
+    write_json(output_dir / "run_config.json", run_config)
 
     print(f"Saved qualitative outputs to: {output_dir}")
     print(json.dumps(summary, indent=2))
