@@ -145,8 +145,8 @@ python tools/build_aed_review_bundle.py \
 生成後、ローカル環境で以下を実行します。
 
 ```bash
-cd analysis/<run_id>
-python -m http.server 8000
+python -m http.server 8000 \
+  --directory analysis/<run_id>
 ```
 
 ブラウザで`http://localhost:8000/review/`を開くと、全721画像を順番に分類できます。
