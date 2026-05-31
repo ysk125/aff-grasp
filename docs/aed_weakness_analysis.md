@@ -72,11 +72,11 @@ docker rm affgrasp-aed-analysis
 Copy `analysis/<run_id>` to the local machine, then:
 
 ```bash
-cd analysis/<run_id>/review
+cd analysis/<run_id>
 python -m http.server 8000
 ```
 
-Open `http://localhost:8000`. Scores, mIoU groups, and object names stay hidden
+Open `http://localhost:8000/review/`. Scores, mIoU groups, and object names stay hidden
 during review. Export `annotations.csv` after all 721 panels are reviewed.
 
 Merge the blinded annotations:
