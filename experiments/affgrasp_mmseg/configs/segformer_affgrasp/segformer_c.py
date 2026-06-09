@@ -1,0 +1,23 @@
+EXPERIMENT = {
+    "model_name": "segformer",
+    "experiment_type": "segformer_c",
+    "backbone": "mit_b0",
+    "pretrained": False,
+    "freeze_mode": "lora",
+    "use_lora": True,
+    "lora_r": 8,
+    "lora_alpha": 4,
+    "lora_dropout": 0.1,
+    "lora_target": "qkv",
+    "use_adapters": False,
+    "epochs": 15,
+    "batch_size": 8,
+    "num_workers": 2,
+    "resize_size": 476,
+    "crop_size": 448,
+    "lr": 1e-3,
+    "backbone_lr": 1e-4,
+    "weight_decay": 1e-4,
+    "focal_alpha": 1.0,
+}
+

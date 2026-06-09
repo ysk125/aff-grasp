@@ -8,6 +8,8 @@ datasets/
 results/
 analysis/
 result/
+outputs/
+experiments/splits/
 *.pth
 *.pt
 *.ckpt
