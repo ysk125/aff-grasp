@@ -8,7 +8,8 @@ not runnable or tracked by Git. The experiment sources have been restored under
 
 Implemented:
 
-- Seven experiment configs: SegFormer A/B/C/D and InternImage A/C/D
+- SegFormer A/B/C/D experiment configs using the Transformers SegFormer B0 implementation
+- InternImage A/C/D configs are retained as experimental placeholders, but are not run by default
 - Shared Aff-Grasp dataset conversion for `ego_train` and AED
 - Fixed train/val/test split generation under `experiments/splits`
 - 9-class class-index target masks
@@ -19,10 +20,11 @@ Implemented:
 - Checkpoint and metrics outputs
 - Detached Docker launcher for q
 
-Important note: the implementation is lightweight PyTorch/timm based rather
-than full MMSegmentation. It preserves the planned behavior and output layout,
-but avoids adding fragile MMCV/MMEngine CUDA dependencies before the first q
-smoke test.
+Important note: SegFormer no longer depends on `timm` model names. The q image
+must include `transformers`, and `preflight.py --check-timm-models` now also
+checks whether the Transformers SegFormer model can be instantiated. InternImage
+still needs a proper OpenGVLab/MMPretrain/DCNv3 implementation before it should
+be treated as a production experiment.
 
 ## Before Running on q
 
@@ -50,10 +52,12 @@ Expected:
 
 - `train_samples` is greater than zero
 - `aed_samples` is `721`
-- `timm_has_mit_b0` is `true`
+- `transformers_available` is `true`
+- `check_model_class` is `SegFormerSegmentationModel`
 
-If `timm_has_internimage_t_1k_224` is `false`, run SegFormer first and defer
-InternImage until the q Docker image has a timm version with InternImage.
+It is fine if `timm_has_mit_b0` is `false`; SegFormer now uses Transformers,
+not timm. If `timm_has_internimage_t_1k_224` is `false`, keep InternImage
+disabled and run SegFormer first.
 
 ## Smoke Tests For All Experiments
 
@@ -63,10 +67,10 @@ Inside Docker:
 bash experiments/affgrasp_mmseg/run_all_smoke_tests.sh 0
 ```
 
-This runs all seven configs sequentially with one epoch, eight train samples,
-and four validation samples. It checks data loading, model creation, freezing
-policy, loss, metrics, checkpointing, and visualization without occupying the
-GPU for long.
+By default this runs the four production SegFormer configs sequentially with
+one epoch, eight train samples, and four validation samples. It checks data
+loading, model creation, freezing policy, LoRA, loss, metrics, checkpointing,
+and visualization without occupying the GPU for long.
 
 Smoke-test outputs:
 
@@ -76,9 +80,12 @@ outputs_smoke/
   segformer_b/
   segformer_c/
   segformer_d/
-  internimage_a/
-  internimage_c/
-  internimage_d/
+```
+
+InternImage placeholders can be included only for dependency debugging:
+
+```bash
+AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE=1 bash experiments/affgrasp_mmseg/run_all_smoke_tests.sh 0
 ```
 
 ## Detached Full Run For All Experiments
@@ -107,9 +114,6 @@ outputs/
   segformer_d/
   segformer_b/
   segformer_c/
-  internimage_a/
-  internimage_d/
-  internimage_c/
 ```
 
 Each experiment directory contains:
@@ -128,16 +132,13 @@ config.yaml
 
 ## Experiment Order
 
-The all-run script uses the planned order and runs one experiment at a time:
+The all-run script runs one production SegFormer experiment at a time:
 
 ```text
 segformer_a
 segformer_d
 segformer_b
 segformer_c
-internimage_a
-internimage_d
-internimage_c
 ```
 
 Do not start multiple training jobs on the same GPU. The all-run script is

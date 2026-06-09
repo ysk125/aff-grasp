@@ -8,7 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from experiments.affgrasp_mmseg.common import discover_aed_samples, discover_train_samples, ensure_splits
+from experiments.affgrasp_mmseg.common import build_model, discover_aed_samples, discover_train_samples, ensure_splits, load_config
 
 
 def main() -> int:
@@ -17,6 +17,7 @@ def main() -> int:
     parser.add_argument("--aed-root", default="affordance-learning/ag_dataset/Affordance_Evaluation_Dataset")
     parser.add_argument("--split-dir", default="experiments/splits")
     parser.add_argument("--check-timm-models", action="store_true")
+    parser.add_argument("--check-config", default="experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_a.py")
     args = parser.parse_args()
 
     train_root = Path(args.train_root).resolve()
@@ -38,15 +39,34 @@ def main() -> int:
     except (OSError, subprocess.CalledProcessError) as exc:
         report["gpu_warning"] = str(exc)
     if args.check_timm_models:
-        import timm
+        try:
+            import timm
 
-        names = set(timm.list_models())
-        report["timm_has_mit_b0"] = "mit_b0" in names
-        report["timm_has_internimage_t_1k_224"] = "internimage_t_1k_224" in names
+            names = set(timm.list_models())
+            report["timm_has_mit_b0"] = "mit_b0" in names
+            report["timm_has_internimage_t_1k_224"] = "internimage_t_1k_224" in names
+        except ImportError as exc:
+            report["timm_warning"] = str(exc)
+        try:
+            import transformers
+
+            report["transformers_available"] = True
+            report["transformers_version"] = transformers.__version__
+        except ImportError as exc:
+            report["transformers_available"] = False
+            report["transformers_warning"] = str(exc)
+        try:
+            cfg = load_config(args.check_config)
+            model = build_model(cfg)
+            report["check_config"] = str(Path(args.check_config).resolve())
+            report["check_model_name"] = cfg.get("model_name")
+            report["check_backbone"] = cfg.get("backbone")
+            report["check_model_class"] = type(model).__name__
+        except Exception as exc:
+            report["check_model_error"] = str(exc)
     print(json.dumps(report, indent=2))
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

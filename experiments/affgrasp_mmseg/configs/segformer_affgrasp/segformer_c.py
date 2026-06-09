@@ -2,13 +2,14 @@ EXPERIMENT = {
     "model_name": "segformer",
     "experiment_type": "segformer_c",
     "backbone": "mit_b0",
+    "hf_model_id": "nvidia/mit-b0",
     "pretrained": False,
     "freeze_mode": "lora",
     "use_lora": True,
     "lora_r": 8,
     "lora_alpha": 4,
     "lora_dropout": 0.1,
-    "lora_target": "qkv",
+    "lora_target": "query,value",
     "use_adapters": False,
     "epochs": 15,
     "batch_size": 8,
@@ -20,4 +21,3 @@ EXPERIMENT = {
     "weight_decay": 1e-4,
     "focal_alpha": 1.0,
 }
-

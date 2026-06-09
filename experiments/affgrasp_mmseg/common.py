@@ -251,6 +251,44 @@ class FeatureAdapter(nn.Module):
         return x + self.net(x)
 
 
+class SegFormerSegmentationModel(nn.Module):
+    def __init__(self, cfg: dict):
+        super().__init__()
+        try:
+            from transformers import SegformerConfig, SegformerForSemanticSegmentation
+        except ImportError as exc:
+            raise RuntimeError(
+                "SegFormer experiments require the transformers package. "
+                "Rebuild the Docker image after pulling this update."
+            ) from exc
+
+        backbone = str(cfg.get("backbone", "mit_b0"))
+        model_id = str(cfg.get("hf_model_id", "nvidia/mit-b0"))
+        num_labels = len(CLASS_NAMES)
+        if bool(cfg.get("pretrained", False)):
+            self.model = SegformerForSemanticSegmentation.from_pretrained(
+                model_id,
+                num_labels=num_labels,
+                ignore_mismatched_sizes=True,
+            )
+        else:
+            if backbone not in {"mit_b0", "nvidia/mit-b0"}:
+                raise ValueError(f"Unsupported local SegFormer backbone: {backbone}")
+            config = SegformerConfig(
+                num_labels=num_labels,
+                id2label={idx: name for idx, name in enumerate(CLASS_NAMES)},
+                label2id={name: idx for idx, name in enumerate(CLASS_NAMES)},
+            )
+            self.model = SegformerForSemanticSegmentation(config)
+        apply_transformer_freeze_policy(self.model, cfg)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        logits = self.model(pixel_values=x).logits
+        if logits.shape[-2:] != x.shape[-2:]:
+            logits = F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        return logits
+
+
 class TimmSegmentationModel(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
@@ -277,7 +315,7 @@ class TimmSegmentationModel(nn.Module):
             nn.GELU(),
             nn.Conv2d(decoder_channels, len(CLASS_NAMES), kernel_size=1),
         )
-        apply_freeze_policy(self, cfg)
+        apply_timm_freeze_policy(self, cfg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone(x)
@@ -293,10 +331,11 @@ class TimmSegmentationModel(nn.Module):
         return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
 
 
-def replace_lora_modules(module: nn.Module, target: str, r: int, alpha: float, dropout: float) -> int:
+def replace_lora_modules(module: nn.Module, target: str | list[str] | tuple[str, ...], r: int, alpha: float, dropout: float) -> int:
     count = 0
+    targets = [target] if isinstance(target, str) else list(target)
     for name, child in list(module.named_children()):
-        if isinstance(child, nn.Linear) and target in name:
+        if isinstance(child, nn.Linear) and any(item in name for item in targets):
             setattr(module, name, LoRALinear(child, r, alpha, dropout))
             count += 1
         else:
@@ -304,7 +343,13 @@ def replace_lora_modules(module: nn.Module, target: str, r: int, alpha: float, d
     return count
 
 
-def apply_freeze_policy(model: TimmSegmentationModel, cfg: dict) -> None:
+def parse_lora_targets(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def apply_timm_freeze_policy(model: TimmSegmentationModel, cfg: dict) -> None:
     mode = cfg.get("freeze_mode", "full")
     if mode in {"frozen", "lora", "adapter"}:
         for param in model.backbone.parameters():
@@ -318,21 +363,55 @@ def apply_freeze_policy(model: TimmSegmentationModel, cfg: dict) -> None:
     else:
         raise ValueError(f"Unknown freeze_mode: {mode}")
     if cfg.get("use_lora"):
+        targets = parse_lora_targets(cfg.get("lora_target", "qkv"))
         count = replace_lora_modules(
             model.backbone,
-            str(cfg.get("lora_target", "qkv")),
+            targets,
             int(cfg.get("lora_r", 8)),
             float(cfg.get("lora_alpha", 4)),
             float(cfg.get("lora_dropout", 0.1)),
         )
         if count == 0:
-            raise RuntimeError(f"No LoRA target modules matched {cfg.get('lora_target', 'qkv')!r}")
+            raise RuntimeError(f"No LoRA target modules matched {targets!r}")
     for module in [model.adapters, model.lateral, model.fuse]:
         for param in module.parameters():
             param.requires_grad = True
 
 
+def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:
+    mode = cfg.get("freeze_mode", "full")
+    encoder = model.segformer.encoder
+    if mode in {"frozen", "lora", "adapter"}:
+        for param in encoder.parameters():
+            param.requires_grad = False
+    elif mode == "partial":
+        for name, param in encoder.named_parameters():
+            param.requires_grad = any(token in name for token in ["block.2", "block.3", "patch_embeddings.3"])
+    elif mode == "full":
+        for param in encoder.parameters():
+            param.requires_grad = True
+    else:
+        raise ValueError(f"Unknown freeze_mode: {mode}")
+    if cfg.get("use_lora"):
+        targets = parse_lora_targets(cfg.get("lora_target", "query,value"))
+        count = replace_lora_modules(
+            encoder,
+            targets,
+            int(cfg.get("lora_r", 8)),
+            float(cfg.get("lora_alpha", 4)),
+            float(cfg.get("lora_dropout", 0.1)),
+        )
+        if count == 0:
+            raise RuntimeError(f"No SegFormer LoRA target modules matched {targets!r}")
+    if mode == "adapter":
+        raise ValueError("Adapter mode is not implemented for the Transformers SegFormer backend.")
+    for param in model.decode_head.parameters():
+        param.requires_grad = True
+
+
 def build_model(cfg: dict) -> nn.Module:
+    if cfg.get("model_name") == "segformer":
+        return SegFormerSegmentationModel(cfg)
     return TimmSegmentationModel(cfg)
 
 

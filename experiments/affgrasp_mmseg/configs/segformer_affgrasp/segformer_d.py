@@ -2,6 +2,7 @@ EXPERIMENT = {
     "model_name": "segformer",
     "experiment_type": "segformer_d",
     "backbone": "mit_b0",
+    "hf_model_id": "nvidia/mit-b0",
     "pretrained": False,
     "freeze_mode": "full",
     "use_lora": False,
@@ -16,4 +17,3 @@ EXPERIMENT = {
     "weight_decay": 1e-4,
     "focal_alpha": 1.0,
 }
-

@@ -8,6 +8,7 @@ matplotlib
 scipy
 peft
 timm
+transformers
 xformers
 huggingface_hub
 hf_xet

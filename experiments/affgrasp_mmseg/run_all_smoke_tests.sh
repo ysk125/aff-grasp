@@ -12,10 +12,15 @@ CONFIGS=(
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_d.py"
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_b.py"
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_c.py"
-  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py"
-  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_d.py"
-  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_c.py"
 )
+
+if [ "${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}" = "1" ]; then
+  CONFIGS+=(
+    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py"
+    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_d.py"
+    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_c.py"
+  )
+fi
 
 echo "== preflight =="
 python experiments/affgrasp_mmseg/preflight.py --check-timm-models
@@ -35,4 +40,3 @@ done
 
 echo
 echo "All smoke tests finished. Outputs: ${OUTPUT_ROOT}/"
-
