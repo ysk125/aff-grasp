@@ -55,59 +55,80 @@ Expected:
 If `timm_has_internimage_t_1k_224` is `false`, run SegFormer first and defer
 InternImage until the q Docker image has a timm version with InternImage.
 
-## Recommended First Smoke Test
+## Smoke Tests For All Experiments
 
 Inside Docker:
 
 ```bash
-python experiments/affgrasp_mmseg/train_affgrasp_mmseg.py \
-  --config experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_a.py \
-  --epochs 1 \
-  --max-train-samples 8 \
-  --max-val-samples 4 \
-  --gpu 0
+bash experiments/affgrasp_mmseg/run_all_smoke_tests.sh 0
 ```
 
-This checks data loading, model creation, loss, metrics, checkpointing, and
-visualization without occupying the GPU for long.
+This runs all seven configs sequentially with one epoch, eight train samples,
+and four validation samples. It checks data loading, model creation, freezing
+policy, loss, metrics, checkpointing, and visualization without occupying the
+GPU for long.
 
-## Detached Full Run
+Smoke-test outputs:
+
+```text
+outputs_smoke/
+  segformer_a/
+  segformer_b/
+  segformer_c/
+  segformer_d/
+  internimage_a/
+  internimage_c/
+  internimage_d/
+```
+
+## Detached Full Run For All Experiments
 
 From the q host, not inside Docker:
 
 ```bash
-bash scripts/run_mmseg_experiment_detached.sh \
-  0 \
-  experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_a.py \
-  affgrasp-segformer-a
+bash scripts/run_all_mmseg_experiments_detached.sh 0 affgrasp-mmseg-all
 ```
 
 Monitor:
 
 ```bash
-docker logs -f affgrasp-segformer-a
-docker ps -a --filter name=affgrasp-segformer-a
+docker logs -f affgrasp-mmseg-all
+docker ps -a --filter name=affgrasp-mmseg-all
 nvidia-smi
 ```
 
 Outputs:
 
 ```text
-outputs/segformer_a/
-  checkpoints/best.pth
-  logs/history.csv
-  logs/parameter_summary.json
-  metrics.csv
-  visualizations/
-  test/metrics.csv
-  test/visualizations/
-  config.py
-  config.yaml
+outputs/
+  all_experiments_status.tsv
+  _logs/
+  segformer_a/
+  segformer_d/
+  segformer_b/
+  segformer_c/
+  internimage_a/
+  internimage_d/
+  internimage_c/
+```
+
+Each experiment directory contains:
+
+```text
+checkpoints/best.pth
+logs/history.csv
+logs/parameter_summary.json
+metrics.csv
+visualizations/
+test/metrics.csv
+test/visualizations/
+config.py
+config.yaml
 ```
 
 ## Experiment Order
 
-Run one experiment at a time:
+The all-run script uses the planned order and runs one experiment at a time:
 
 ```text
 segformer_a
@@ -119,9 +140,9 @@ internimage_d
 internimage_c
 ```
 
-Do not start multiple training jobs on the same GPU. Remove stopped containers
-after checking logs:
+Do not start multiple training jobs on the same GPU. The all-run script is
+sequential by design. Remove the stopped container after checking logs:
 
 ```bash
-docker rm affgrasp-segformer-a
+docker rm affgrasp-mmseg-all
 ```
