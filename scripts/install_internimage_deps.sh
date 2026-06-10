@@ -12,9 +12,9 @@ from mmpretrain.registry import MODELS
 model = MODELS.build(
     dict(
         type="InternImage",
-        channels=64,
-        depths=[4, 4, 18, 4],
-        groups=[4, 8, 16, 32],
+        channels=80,
+        depths=[4, 4, 21, 4],
+        groups=[5, 10, 20, 40],
         mlp_ratio=4.0,
         drop_path_rate=0.2,
         out_indices=(0, 1, 2, 3),

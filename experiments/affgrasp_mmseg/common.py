@@ -262,8 +262,8 @@ class SegFormerSegmentationModel(nn.Module):
                 "Rebuild the Docker image after pulling this update."
             ) from exc
 
-        backbone = str(cfg.get("backbone", "mit_b0"))
-        model_id = str(cfg.get("hf_model_id", "nvidia/mit-b0"))
+        backbone = str(cfg.get("backbone", "mit_b5"))
+        model_id = str(cfg.get("hf_model_id", "nvidia/segformer-b5-finetuned-ade-640-640"))
         num_labels = len(CLASS_NAMES)
         if bool(cfg.get("pretrained", False)):
             self.model = SegformerForSemanticSegmentation.from_pretrained(
@@ -272,12 +272,24 @@ class SegFormerSegmentationModel(nn.Module):
                 ignore_mismatched_sizes=True,
             )
         else:
-            if backbone not in {"mit_b0", "nvidia/mit-b0"}:
+            if backbone not in {"mit_b0", "nvidia/mit-b0", "mit_b5", "nvidia/mit-b5"}:
                 raise ValueError(f"Unsupported local SegFormer backbone: {backbone}")
+            config_kwargs = {}
+            if backbone in {"mit_b5", "nvidia/mit-b5"}:
+                config_kwargs = {
+                    "depths": [3, 6, 40, 3],
+                    "hidden_sizes": [64, 128, 320, 512],
+                    "decoder_hidden_size": 768,
+                    "num_attention_heads": [1, 2, 5, 8],
+                    "sr_ratios": [8, 4, 2, 1],
+                    "patch_sizes": [7, 3, 3, 3],
+                    "strides": [4, 2, 2, 2],
+                }
             config = SegformerConfig(
                 num_labels=num_labels,
                 id2label={idx: name for idx, name in enumerate(CLASS_NAMES)},
                 label2id={name: idx for idx, name in enumerate(CLASS_NAMES)},
+                **config_kwargs,
             )
             self.model = SegformerForSemanticSegmentation(config)
         apply_transformer_freeze_policy(self.model, cfg)
@@ -331,6 +343,54 @@ class TimmSegmentationModel(nn.Module):
         return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
 
 
+class ConvNormAct(nn.Sequential):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3, padding: int = 1):
+        super().__init__(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+
+class UPerNetHead(nn.Module):
+    def __init__(self, in_channels: list[int], channels: int, num_classes: int, pool_scales=(1, 2, 3, 6)):
+        super().__init__()
+        self.ppm = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(scale),
+                    ConvNormAct(in_channels[-1], channels, kernel_size=1, padding=0),
+                )
+                for scale in pool_scales
+            ]
+        )
+        self.ppm_bottleneck = ConvNormAct(in_channels[-1] + len(pool_scales) * channels, channels)
+        self.lateral = nn.ModuleList([ConvNormAct(ch, channels, kernel_size=1, padding=0) for ch in in_channels[:-1]])
+        self.fpn = nn.ModuleList([ConvNormAct(channels, channels) for _ in in_channels[:-1]])
+        self.fpn_bottleneck = ConvNormAct(len(in_channels) * channels, channels)
+        self.classifier = nn.Conv2d(channels, num_classes, kernel_size=1)
+
+    def forward(self, features: list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
+        ppm_outputs = [features[-1]]
+        for branch in self.ppm:
+            pooled = branch(features[-1])
+            ppm_outputs.append(F.interpolate(pooled, size=features[-1].shape[-2:], mode="bilinear", align_corners=False))
+        laterals = [lateral(feat) for lateral, feat in zip(self.lateral, features[:-1])]
+        laterals.append(self.ppm_bottleneck(torch.cat(ppm_outputs, dim=1)))
+        for idx in range(len(laterals) - 1, 0, -1):
+            laterals[idx - 1] = laterals[idx - 1] + F.interpolate(
+                laterals[idx], size=laterals[idx - 1].shape[-2:], mode="bilinear", align_corners=False
+            )
+        fpn_outputs = [conv(laterals[idx]) for idx, conv in enumerate(self.fpn)]
+        fpn_outputs.append(laterals[-1])
+        target_size = fpn_outputs[0].shape[-2:]
+        fpn_outputs = [
+            output if output.shape[-2:] == target_size else F.interpolate(output, size=target_size, mode="bilinear", align_corners=False)
+            for output in fpn_outputs
+        ]
+        return self.classifier(self.fpn_bottleneck(torch.cat(fpn_outputs, dim=1)))
+
+
 class MMPretrainInternImageSegmentationModel(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
@@ -346,37 +406,24 @@ class MMPretrainInternImageSegmentationModel(nn.Module):
         if not backbone_cfg:
             backbone_cfg = {
                 "type": "InternImage",
-                "channels": 64,
-                "depths": [4, 4, 18, 4],
-                "groups": [4, 8, 16, 32],
+                "channels": 80,
+                "depths": [4, 4, 21, 4],
+                "groups": [5, 10, 20, 40],
                 "mlp_ratio": 4.0,
                 "drop_path_rate": 0.2,
                 "out_indices": (0, 1, 2, 3),
             }
         backbone_cfg.setdefault("out_indices", (0, 1, 2, 3))
         self.backbone = MODELS.build(backbone_cfg)
-        with torch.no_grad():
-            was_training = self.backbone.training
-            self.backbone.eval()
-            features = self.backbone(torch.zeros(1, 3, int(cfg["crop_size"]), int(cfg["crop_size"])))
-            if was_training:
-                self.backbone.train()
-        if isinstance(features, torch.Tensor):
-            features = [features]
-        channels = [int(feat.shape[1]) for feat in features]
-        decoder_channels = int(cfg.get("decoder_channels", 128))
+        channels = [int(ch) for ch in cfg.get("feature_channels", [80, 160, 320, 640])]
         self.adapters = nn.ModuleList(
-            [
-                FeatureAdapter(ch, int(cfg.get("adapter_reduction", 4))) if cfg.get("use_adapters") else nn.Identity()
-                for ch in channels
-            ]
+            [FeatureAdapter(ch, int(cfg.get("adapter_reduction", 4))) if cfg.get("use_adapters") else nn.Identity() for ch in channels]
         )
-        self.lateral = nn.ModuleList([nn.Conv2d(ch, decoder_channels, kernel_size=1) for ch in channels])
-        self.fuse = nn.Sequential(
-            nn.Conv2d(decoder_channels * len(channels), decoder_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(decoder_channels),
-            nn.GELU(),
-            nn.Conv2d(decoder_channels, len(CLASS_NAMES), kernel_size=1),
+        self.decode_head = UPerNetHead(
+            channels,
+            int(cfg.get("decoder_channels", 512)),
+            len(CLASS_NAMES),
+            tuple(cfg.get("pool_scales", [1, 2, 3, 6])),
         )
         apply_timm_freeze_policy(self, cfg)
 
@@ -384,15 +431,8 @@ class MMPretrainInternImageSegmentationModel(nn.Module):
         features = self.backbone(x)
         if isinstance(features, torch.Tensor):
             features = [features]
-        size = features[0].shape[-2:]
-        outputs = []
-        for feat, adapter, lateral in zip(features, self.adapters, self.lateral):
-            feat = adapter(feat)
-            feat = lateral(feat)
-            if feat.shape[-2:] != size:
-                feat = F.interpolate(feat, size=size, mode="bilinear", align_corners=False)
-            outputs.append(feat)
-        logits = self.fuse(torch.cat(outputs, dim=1))
+        outputs = [adapter(feat) for feat, adapter in zip(features, self.adapters)]
+        logits = self.decode_head(outputs)
         return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
 
 
@@ -448,9 +488,11 @@ def apply_timm_freeze_policy(model: TimmSegmentationModel, cfg: dict) -> None:
         )
         if count == 0:
             raise RuntimeError(f"No LoRA target modules matched {targets!r}")
-    for module in [model.adapters, model.lateral, model.fuse]:
-        for param in module.parameters():
-            param.requires_grad = True
+    for name in ["adapters", "lateral", "fuse", "decode_head"]:
+        module = getattr(model, name, None)
+        if module is not None:
+            for param in module.parameters():
+                param.requires_grad = True
 
 
 def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:

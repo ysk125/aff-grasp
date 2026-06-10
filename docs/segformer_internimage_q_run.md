@@ -8,7 +8,8 @@ not runnable or tracked by Git. The experiment sources have been restored under
 
 Implemented:
 
-- SegFormer A/B/C/D experiment configs using the Transformers SegFormer B0 implementation
+- SegFormer A/B/C/D experiment configs using MiT-B5 with the SegFormer MLP decode head
+- InternImage A/C/D experiment configs using InternImage-S with a UPerNet decode head
 - InternImage A/C/D configs are retained as experimental placeholders, but are not run by default
 - Shared Aff-Grasp dataset conversion for `ego_train` and AED
 - Fixed train/val/test split generation under `experiments/splits`
@@ -77,6 +78,18 @@ Expected InternImage fields:
 mmpretrain_available: true
 internimage_model_class: MMPretrainInternImageSegmentationModel
 ```
+
+The model families are selected to keep total capacity in the same broad range
+as the DINOv2-base + GAT baseline:
+
+```text
+DINOv2-base + GAT head: about 86M plus the GAT-specific layers
+SegFormer MiT-B5 + MLP head: about 85M
+InternImage-S + UPerNet head: about 80M
+```
+
+Use the `check_parameters` and `internimage_parameters` fields reported by
+`preflight.py` as the authoritative counts for the exact local implementation.
 
 ## Smoke Tests For All Experiments
 

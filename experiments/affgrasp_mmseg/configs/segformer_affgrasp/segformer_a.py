@@ -1,8 +1,8 @@
 EXPERIMENT = {
     "model_name": "segformer",
     "experiment_type": "segformer_a",
-    "backbone": "mit_b0",
-    "hf_model_id": "nvidia/mit-b0",
+    "backbone": "mit_b5",
+    "hf_model_id": "nvidia/segformer-b5-finetuned-ade-640-640",
     "pretrained": False,
     "freeze_mode": "frozen",
     "use_lora": False,

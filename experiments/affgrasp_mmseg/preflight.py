@@ -8,7 +8,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from experiments.affgrasp_mmseg.common import build_model, discover_aed_samples, discover_train_samples, ensure_splits, load_config
+from experiments.affgrasp_mmseg.common import (
+    build_model,
+    discover_aed_samples,
+    discover_train_samples,
+    ensure_splits,
+    load_config,
+    parameter_summary,
+)
 
 
 def main() -> int:
@@ -63,6 +70,7 @@ def main() -> int:
             report["check_model_name"] = cfg.get("model_name")
             report["check_backbone"] = cfg.get("backbone")
             report["check_model_class"] = type(model).__name__
+            report["check_parameters"] = parameter_summary(model)
         except Exception as exc:
             report["check_model_error"] = str(exc)
     if args.check_internimage:
@@ -81,6 +89,7 @@ def main() -> int:
             report["internimage_check_config"] = str(intern_config.resolve())
             report["internimage_backend"] = cfg.get("backend")
             report["internimage_model_class"] = type(model).__name__
+            report["internimage_parameters"] = parameter_summary(model)
         except Exception as exc:
             report["internimage_check_model_error"] = str(exc)
     print(json.dumps(report, indent=2))
