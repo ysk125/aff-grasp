@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 INCLUDE_INTERNIMAGE="${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}"
 OUTPUT_ROOT="${AFFGRASP_OUTPUT_ROOT:-outputs}"
-RUNTIME_TMP="${ROOT_DIR}/.runtime-tmp"
+RUNTIME_TMP="/dev/shm/affgrasp-tmp"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   echo "Container already exists: ${CONTAINER_NAME}" >&2
@@ -17,7 +17,6 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
-mkdir -p "${RUNTIME_TMP}"
 docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --name "${CONTAINER_NAME}" \
   --mount "type=bind,source=${ROOT_DIR},target=${ROOT_DIR}" \
@@ -38,6 +37,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
+    mkdir -p \"\${TMPDIR}\" \"\${TORCHINDUCTOR_CACHE_DIR}\"
     bash experiments/affgrasp_mmseg/run_all_experiments.sh 0
   "
 

@@ -4,10 +4,9 @@ set -euo pipefail
 GPU_ID="${1:-0}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
-RUNTIME_TMP="${ROOT_DIR}/.runtime-tmp"
+RUNTIME_TMP="/dev/shm/affgrasp-tmp"
 
 cd "${ROOT_DIR}"
-mkdir -p "${RUNTIME_TMP}"
 docker run --gpus "device=${GPU_ID}" --shm-size=8g -it --rm \
   --mount "type=bind,source=${ROOT_DIR},target=${ROOT_DIR}" \
   --workdir "${ROOT_DIR}" \
@@ -23,4 +22,4 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -it --rm \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
   "${IMAGE_NAME}" \
-  bash -lc 'source scripts/affgrasp_env.sh; exec bash'
+  bash -lc 'mkdir -p "${TMPDIR}" "${TORCHINDUCTOR_CACHE_DIR}"; source scripts/affgrasp_env.sh; exec bash'
