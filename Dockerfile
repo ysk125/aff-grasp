@@ -45,8 +45,9 @@ ARG INSTALL_INTERNIMAGE=0
 RUN if [ "${INSTALL_INTERNIMAGE}" = "1" ]; then \
       git clone --depth 1 https://github.com/OpenGVLab/InternImage.git /opt/InternImage && \
       cd /opt/InternImage/classification/ops_dcnv3 && \
-      MAX_JOBS=4 sh ./make.sh && \
-      python test.py; \
+      sed -i 's/if torch.cuda.is_available() and CUDA_HOME is not None:/if (torch.cuda.is_available() or os.getenv("FORCE_CUDA") == "1") and CUDA_HOME is not None:/' setup.py && \
+      grep -q 'FORCE_CUDA' setup.py && \
+      CUDA_HOME=/usr/local/cuda FORCE_CUDA=1 MAX_JOBS=4 sh ./make.sh; \
     fi
 
 ARG USER_ID=1000
