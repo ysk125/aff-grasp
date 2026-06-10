@@ -30,7 +30,6 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env TORCHINDUCTOR_CACHE_DIR="${RUNTIME_TMP}/torchinductor" \
   --env HF_HOME="${RUNTIME_TMP}/huggingface" \
   --env HF_HUB_CACHE="${RUNTIME_TMP}/huggingface/hub" \
-  --env TRANSFORMERS_CACHE="${RUNTIME_TMP}/huggingface/transformers" \
   --env OMP_NUM_THREADS=4 \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
@@ -40,7 +39,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
-    mkdir -p \"\${TMPDIR}\" \"\${TORCHINDUCTOR_CACHE_DIR}\" \"\${HF_HUB_CACHE}\" \"\${TRANSFORMERS_CACHE}\"
+    mkdir -p \"\${TMPDIR}\" \"\${TORCHINDUCTOR_CACHE_DIR}\" \"\${HF_HUB_CACHE}\"
     bash experiments/affgrasp_mmseg/run_all_experiments.sh 0
   "
 

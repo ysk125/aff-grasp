@@ -66,6 +66,45 @@ def save_visualizations(model, dataset, output_dir: Path, device, limit: int = 2
     write_csv(output_dir / "visualizations.csv", rows)
 
 
+def build_optimizer(model, cfg: dict) -> torch.optim.Optimizer:
+    backbone_params = []
+    task_params = []
+    backbone_lr = float(cfg.get("backbone_lr", cfg["lr"]))
+    task_lr = float(cfg["lr"])
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        is_backbone = name.startswith("model.segformer.encoder.") or name.startswith("backbone.")
+        is_peft = any(token in name for token in ["lora_a", "lora_b", "adapters."])
+        if is_backbone and not is_peft:
+            backbone_params.append(param)
+        else:
+            task_params.append(param)
+    groups = []
+    if backbone_params:
+        groups.append({"params": backbone_params, "lr": backbone_lr, "group_name": "backbone"})
+    if task_params:
+        groups.append({"params": task_params, "lr": task_lr, "group_name": "task"})
+    if not groups:
+        raise RuntimeError("No trainable parameters found for optimizer")
+    print(
+        json.dumps(
+            {
+                "optimizer_groups": [
+                    {
+                        "name": group["group_name"],
+                        "lr": group["lr"],
+                        "parameters": sum(param.numel() for param in group["params"]),
+                    }
+                    for group in groups
+                ]
+            },
+            indent=2,
+        )
+    )
+    return torch.optim.AdamW(groups, weight_decay=cfg["weight_decay"])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -113,8 +152,7 @@ def main() -> int:
     with (output_dir / "logs" / "parameter_summary.json").open("w") as stream:
         json.dump(params, stream, indent=2)
 
-    trainable = [param for param in model.parameters() if param.requires_grad]
-    optimizer = torch.optim.AdamW(trainable, lr=cfg["lr"], weight_decay=cfg["weight_decay"])
+    optimizer = build_optimizer(model, cfg)
     criterion = FocalDiceLoss(alpha=float(cfg.get("focal_alpha", 1.0)))
     best_miou = -1.0
     history = []
@@ -152,4 +190,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

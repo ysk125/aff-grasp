@@ -467,6 +467,14 @@ class OfficialInternImageSegmentationModel(nn.Module):
             f"Loaded InternImage ADE20K weights: {loaded} tensors; "
             f"backbone missing={len(backbone_result.missing_keys)}, head missing={len(head_result.missing_keys)}"
         )
+        if backbone_result.missing_keys:
+            print(f"InternImage backbone missing keys: {backbone_result.missing_keys}")
+        if backbone_result.unexpected_keys:
+            print(f"InternImage backbone unexpected keys: {backbone_result.unexpected_keys}")
+        if head_result.missing_keys:
+            print(f"InternImage head missing keys: {head_result.missing_keys}")
+        if head_result.unexpected_keys:
+            print(f"InternImage head unexpected keys: {head_result.unexpected_keys}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone.forward_features_seq_out(x)
