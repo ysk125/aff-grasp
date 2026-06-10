@@ -8,8 +8,8 @@ matplotlib
 scipy
 peft
 timm
-transformers
+transformers==4.44.2
+huggingface_hub==0.24.7
 xformers
-huggingface_hub
 hf_xet
 ninja
