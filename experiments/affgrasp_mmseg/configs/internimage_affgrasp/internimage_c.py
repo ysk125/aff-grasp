@@ -2,6 +2,16 @@ EXPERIMENT = {
     "model_name": "internimage",
     "experiment_type": "internimage_c",
     "backbone": "internimage_t_1k_224",
+    "backend": "mmpretrain",
+    "mmpretrain_backbone": {
+        "type": "InternImage",
+        "channels": 64,
+        "depths": [4, 4, 18, 4],
+        "groups": [4, 8, 16, 32],
+        "mlp_ratio": 4.0,
+        "drop_path_rate": 0.2,
+        "out_indices": (0, 1, 2, 3),
+    },
     "pretrained": False,
     "freeze_mode": "adapter",
     "use_lora": False,
@@ -17,4 +27,3 @@ EXPERIMENT = {
     "weight_decay": 1e-4,
     "focal_alpha": 1.0,
 }
-

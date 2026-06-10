@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--split-dir", default="experiments/splits")
     parser.add_argument("--check-timm-models", action="store_true")
     parser.add_argument("--check-config", default="experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_a.py")
+    parser.add_argument("--check-internimage", action="store_true")
     args = parser.parse_args()
 
     train_root = Path(args.train_root).resolve()
@@ -64,6 +65,24 @@ def main() -> int:
             report["check_model_class"] = type(model).__name__
         except Exception as exc:
             report["check_model_error"] = str(exc)
+    if args.check_internimage:
+        intern_config = Path("experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py")
+        try:
+            import mmpretrain
+
+            report["mmpretrain_available"] = True
+            report["mmpretrain_version"] = getattr(mmpretrain, "__version__", "unknown")
+        except ImportError as exc:
+            report["mmpretrain_available"] = False
+            report["mmpretrain_warning"] = str(exc)
+        try:
+            cfg = load_config(intern_config)
+            model = build_model(cfg)
+            report["internimage_check_config"] = str(intern_config.resolve())
+            report["internimage_backend"] = cfg.get("backend")
+            report["internimage_model_class"] = type(model).__name__
+        except Exception as exc:
+            report["internimage_check_model_error"] = str(exc)
     print(json.dumps(report, indent=2))
     return 0
 

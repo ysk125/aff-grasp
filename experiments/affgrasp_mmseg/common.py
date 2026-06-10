@@ -331,15 +331,90 @@ class TimmSegmentationModel(nn.Module):
         return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
 
 
-def replace_lora_modules(module: nn.Module, target: str | list[str] | tuple[str, ...], r: int, alpha: float, dropout: float) -> int:
+class MMPretrainInternImageSegmentationModel(nn.Module):
+    def __init__(self, cfg: dict):
+        super().__init__()
+        try:
+            from mmpretrain.registry import MODELS
+        except ImportError as exc:
+            raise RuntimeError(
+                "InternImage experiments require mmpretrain/mmcv InternImage support. "
+                "Install the optional InternImage dependencies inside the Docker image."
+            ) from exc
+
+        backbone_cfg = dict(cfg.get("mmpretrain_backbone", {}))
+        if not backbone_cfg:
+            backbone_cfg = {
+                "type": "InternImage",
+                "channels": 64,
+                "depths": [4, 4, 18, 4],
+                "groups": [4, 8, 16, 32],
+                "mlp_ratio": 4.0,
+                "drop_path_rate": 0.2,
+                "out_indices": (0, 1, 2, 3),
+            }
+        backbone_cfg.setdefault("out_indices", (0, 1, 2, 3))
+        self.backbone = MODELS.build(backbone_cfg)
+        with torch.no_grad():
+            was_training = self.backbone.training
+            self.backbone.eval()
+            features = self.backbone(torch.zeros(1, 3, int(cfg["crop_size"]), int(cfg["crop_size"])))
+            if was_training:
+                self.backbone.train()
+        if isinstance(features, torch.Tensor):
+            features = [features]
+        channels = [int(feat.shape[1]) for feat in features]
+        decoder_channels = int(cfg.get("decoder_channels", 128))
+        self.adapters = nn.ModuleList(
+            [
+                FeatureAdapter(ch, int(cfg.get("adapter_reduction", 4))) if cfg.get("use_adapters") else nn.Identity()
+                for ch in channels
+            ]
+        )
+        self.lateral = nn.ModuleList([nn.Conv2d(ch, decoder_channels, kernel_size=1) for ch in channels])
+        self.fuse = nn.Sequential(
+            nn.Conv2d(decoder_channels * len(channels), decoder_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(decoder_channels),
+            nn.GELU(),
+            nn.Conv2d(decoder_channels, len(CLASS_NAMES), kernel_size=1),
+        )
+        apply_timm_freeze_policy(self, cfg)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.backbone(x)
+        if isinstance(features, torch.Tensor):
+            features = [features]
+        size = features[0].shape[-2:]
+        outputs = []
+        for feat, adapter, lateral in zip(features, self.adapters, self.lateral):
+            feat = adapter(feat)
+            feat = lateral(feat)
+            if feat.shape[-2:] != size:
+                feat = F.interpolate(feat, size=size, mode="bilinear", align_corners=False)
+            outputs.append(feat)
+        logits = self.fuse(torch.cat(outputs, dim=1))
+        return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
+
+
+def replace_lora_modules(
+    module: nn.Module,
+    target: str | list[str] | tuple[str, ...],
+    r: int,
+    alpha: float,
+    dropout: float,
+    allowed_path_tokens: list[str] | tuple[str, ...] | None = None,
+    prefix: str = "",
+) -> int:
     count = 0
     targets = [target] if isinstance(target, str) else list(target)
     for name, child in list(module.named_children()):
-        if isinstance(child, nn.Linear) and any(item in name for item in targets):
+        path = f"{prefix}.{name}" if prefix else name
+        allowed = allowed_path_tokens is None or any(token in path for token in allowed_path_tokens)
+        if isinstance(child, nn.Linear) and allowed and any(item in name for item in targets):
             setattr(module, name, LoRALinear(child, r, alpha, dropout))
             count += 1
         else:
-            count += replace_lora_modules(child, target, r, alpha, dropout)
+            count += replace_lora_modules(child, target, r, alpha, dropout, allowed_path_tokens, path)
     return count
 
 
@@ -394,15 +469,18 @@ def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:
         raise ValueError(f"Unknown freeze_mode: {mode}")
     if cfg.get("use_lora"):
         targets = parse_lora_targets(cfg.get("lora_target", "query,value"))
+        stage_indices = cfg.get("lora_stage_indices", [2, 3])
+        allowed_paths = [f"block.{int(idx)}" for idx in stage_indices]
         count = replace_lora_modules(
             encoder,
             targets,
             int(cfg.get("lora_r", 8)),
             float(cfg.get("lora_alpha", 4)),
             float(cfg.get("lora_dropout", 0.1)),
+            allowed_paths,
         )
         if count == 0:
-            raise RuntimeError(f"No SegFormer LoRA target modules matched {targets!r}")
+            raise RuntimeError(f"No SegFormer LoRA target modules matched {targets!r} under {allowed_paths!r}")
     if mode == "adapter":
         raise ValueError("Adapter mode is not implemented for the Transformers SegFormer backend.")
     for param in model.decode_head.parameters():
@@ -412,6 +490,13 @@ def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:
 def build_model(cfg: dict) -> nn.Module:
     if cfg.get("model_name") == "segformer":
         return SegFormerSegmentationModel(cfg)
+    if cfg.get("model_name") == "internimage":
+        backend = cfg.get("backend", "mmpretrain")
+        if backend == "mmpretrain":
+            return MMPretrainInternImageSegmentationModel(cfg)
+        if backend == "timm":
+            return TimmSegmentationModel(cfg)
+        raise ValueError(f"Unknown InternImage backend: {backend}")
     return TimmSegmentationModel(cfg)
 
 

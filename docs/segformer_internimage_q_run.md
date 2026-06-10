@@ -23,8 +23,8 @@ Implemented:
 Important note: SegFormer no longer depends on `timm` model names. The q image
 must include `transformers`, and `preflight.py --check-timm-models` now also
 checks whether the Transformers SegFormer model can be instantiated. InternImage
-still needs a proper OpenGVLab/MMPretrain/DCNv3 implementation before it should
-be treated as a production experiment.
+uses the MMPretrain InternImage backend and requires optional `mmcv`/`mmpretrain`
+dependencies before it can be enabled.
 
 ## Before Running on q
 
@@ -59,6 +59,25 @@ It is fine if `timm_has_mit_b0` is `false`; SegFormer now uses Transformers,
 not timm. If `timm_has_internimage_t_1k_224` is `false`, keep InternImage
 disabled and run SegFormer first.
 
+## Optional InternImage Setup
+
+InternImage is not installed by the base Docker image because its `mmcv`/DCNv3
+dependency stack is heavier and may need server-specific wheel resolution. After
+SegFormer smoke tests pass, install and validate the optional backend inside the
+Docker container:
+
+```bash
+bash scripts/install_internimage_deps.sh
+python experiments/affgrasp_mmseg/preflight.py --check-timm-models --check-internimage
+```
+
+Expected InternImage fields:
+
+```text
+mmpretrain_available: true
+internimage_model_class: MMPretrainInternImageSegmentationModel
+```
+
 ## Smoke Tests For All Experiments
 
 Inside Docker:
@@ -87,6 +106,8 @@ InternImage placeholders can be included only for dependency debugging:
 ```bash
 AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE=1 bash experiments/affgrasp_mmseg/run_all_smoke_tests.sh 0
 ```
+
+Run this only after `--check-internimage` succeeds.
 
 ## Detached Full Run For All Experiments
 
@@ -140,6 +161,11 @@ segformer_d
 segformer_b
 segformer_c
 ```
+
+`segformer_c` is the LoRA condition. LoRA is inserted only into the later
+SegFormer encoder stages, stage 3 and stage 4 (`block.2` and `block.3` in the
+Transformers implementation), targeting the attention `query` and `value`
+linear layers.
 
 Do not start multiple training jobs on the same GPU. The all-run script is
 sequential by design. Remove the stopped container after checking logs:

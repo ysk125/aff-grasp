@@ -10,6 +10,7 @@ EXPERIMENT = {
     "lora_alpha": 4,
     "lora_dropout": 0.1,
     "lora_target": "query,value",
+    "lora_stage_indices": [2, 3],
     "use_adapters": False,
     "epochs": 15,
     "batch_size": 8,
