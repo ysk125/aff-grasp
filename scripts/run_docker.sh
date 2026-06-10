@@ -17,9 +17,12 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -it --rm \
   --env TMP="${RUNTIME_TMP}" \
   --env TEMP="${RUNTIME_TMP}" \
   --env TORCHINDUCTOR_CACHE_DIR="${RUNTIME_TMP}/torchinductor" \
+  --env HF_HOME="${RUNTIME_TMP}/huggingface" \
+  --env HF_HUB_CACHE="${RUNTIME_TMP}/huggingface/hub" \
+  --env TRANSFORMERS_CACHE="${RUNTIME_TMP}/huggingface/transformers" \
   --env OMP_NUM_THREADS=4 \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
   "${IMAGE_NAME}" \
-  bash -lc 'mkdir -p "${TMPDIR}" "${TORCHINDUCTOR_CACHE_DIR}"; source scripts/affgrasp_env.sh; exec bash'
+  bash -lc 'mkdir -p "${TMPDIR}" "${TORCHINDUCTOR_CACHE_DIR}" "${HF_HUB_CACHE}" "${TRANSFORMERS_CACHE}"; source scripts/affgrasp_env.sh; exec bash'
