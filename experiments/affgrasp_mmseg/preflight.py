@@ -69,6 +69,8 @@ def main() -> int:
             report["check_config"] = str(Path(args.check_config).resolve())
             report["check_model_name"] = cfg.get("model_name")
             report["check_backbone"] = cfg.get("backbone")
+            report["check_pretrained"] = cfg.get("pretrained")
+            report["check_pretrained_source"] = cfg.get("hf_model_path") or cfg.get("hf_model_id")
             report["check_model_class"] = type(model).__name__
             report["check_parameters"] = parameter_summary(model)
         except Exception as exc:
@@ -80,6 +82,8 @@ def main() -> int:
             model = build_model(cfg)
             report["internimage_check_config"] = str(intern_config.resolve())
             report["internimage_backend"] = cfg.get("backend")
+            report["internimage_pretrained"] = cfg.get("pretrained")
+            report["internimage_checkpoint"] = cfg.get("checkpoint_path")
             report["internimage_model_class"] = type(model).__name__
             report["internimage_parameters"] = parameter_summary(model)
         except Exception as exc:

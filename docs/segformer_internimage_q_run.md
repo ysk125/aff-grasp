@@ -11,6 +11,8 @@ Implemented:
 - SegFormer A/B/C/D experiment configs using MiT-B5 with the SegFormer MLP decode head
 - InternImage A/C/D experiment configs using the official InternImage-S backbone with a UPerNet decode head
 - InternImage is optional and is not run by default until its DCNv3 build passes
+- SegFormer-B5 is initialized from the NVIDIA ADE20K checkpoint
+- InternImage-S and its UPerNet head are initialized from the official ADE20K checkpoint
 - Shared Aff-Grasp dataset conversion for `ego_train` and AED
 - Fixed train/val/test split generation under `experiments/splits`
 - 9-class class-index target masks
@@ -97,6 +99,8 @@ InternImage-S + UPerNet head: about 80M
 
 Use the `check_parameters` and `internimage_parameters` fields reported by
 `preflight.py` as the authoritative counts for the exact local implementation.
+The ADE20K classifiers are not reused because ADE20K has 150 classes; only the
+final classifier layers are newly initialized for the nine Aff-Grasp labels.
 
 ## Smoke Tests For All Experiments
 

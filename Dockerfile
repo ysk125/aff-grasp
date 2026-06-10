@@ -40,6 +40,7 @@ RUN python -m pip install \
 
 COPY requirements-affgrasp.txt /tmp/requirements-affgrasp.txt
 RUN python -m pip install -r /tmp/requirements-affgrasp.txt
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/segformer-b5-finetuned-ade-640-640', local_dir='/opt/models/segformer-b5-ade20k')"
 
 ARG INSTALL_INTERNIMAGE=0
 RUN if [ "${INSTALL_INTERNIMAGE}" = "1" ]; then \
@@ -47,7 +48,9 @@ RUN if [ "${INSTALL_INTERNIMAGE}" = "1" ]; then \
       cd /opt/InternImage/classification/ops_dcnv3 && \
       sed -i 's/if torch.cuda.is_available() and CUDA_HOME is not None:/if (torch.cuda.is_available() or os.getenv("FORCE_CUDA") == "1") and CUDA_HOME is not None:/' setup.py && \
       grep -q 'FORCE_CUDA' setup.py && \
-      CUDA_HOME=/usr/local/cuda FORCE_CUDA=1 MAX_JOBS=4 sh ./make.sh; \
+      CUDA_HOME=/usr/local/cuda FORCE_CUDA=1 MAX_JOBS=4 sh ./make.sh && \
+      mkdir -p /opt/InternImage/checkpoints && \
+      python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='OpenGVLab/InternImage', filename='upernet_internimage_s_512_160k_ade20k.pth', local_dir='/opt/InternImage/checkpoints')"; \
     fi
 
 ARG USER_ID=1000

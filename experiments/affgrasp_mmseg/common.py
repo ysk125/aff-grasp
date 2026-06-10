@@ -266,10 +266,12 @@ class SegFormerSegmentationModel(nn.Module):
 
         backbone = str(cfg.get("backbone", "mit_b5"))
         model_id = str(cfg.get("hf_model_id", "nvidia/segformer-b5-finetuned-ade-640-640"))
+        local_model_path = Path(str(cfg.get("hf_model_path", "")))
+        model_source = str(local_model_path) if local_model_path.is_dir() else model_id
         num_labels = len(CLASS_NAMES)
         if bool(cfg.get("pretrained", False)):
             self.model = SegformerForSemanticSegmentation.from_pretrained(
-                model_id,
+                model_source,
                 num_labels=num_labels,
                 ignore_mismatched_sizes=True,
             )
@@ -355,7 +357,7 @@ class ConvNormAct(nn.Sequential):
 
 
 class UPerNetHead(nn.Module):
-    def __init__(self, in_channels: list[int], channels: int, num_classes: int, pool_scales=(1, 2, 3, 6)):
+    def __init__(self, in_channels: list[int], channels: int, num_classes: int, pool_scales=(1, 2, 3, 6), dropout: float = 0.1):
         super().__init__()
         self.ppm = nn.ModuleList(
             [
@@ -370,6 +372,7 @@ class UPerNetHead(nn.Module):
         self.lateral = nn.ModuleList([ConvNormAct(ch, channels, kernel_size=1, padding=0) for ch in in_channels[:-1]])
         self.fpn = nn.ModuleList([ConvNormAct(channels, channels) for _ in in_channels[:-1]])
         self.fpn_bottleneck = ConvNormAct(len(in_channels) * channels, channels)
+        self.dropout = nn.Dropout2d(dropout)
         self.classifier = nn.Conv2d(channels, num_classes, kernel_size=1)
 
     def forward(self, features: list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
@@ -390,7 +393,7 @@ class UPerNetHead(nn.Module):
             output if output.shape[-2:] == target_size else F.interpolate(output, size=target_size, mode="bilinear", align_corners=False)
             for output in fpn_outputs
         ]
-        return self.classifier(self.fpn_bottleneck(torch.cat(fpn_outputs, dim=1)))
+        return self.classifier(self.dropout(self.fpn_bottleneck(torch.cat(fpn_outputs, dim=1))))
 
 
 class OfficialInternImageSegmentationModel(nn.Module):
@@ -429,7 +432,41 @@ class OfficialInternImageSegmentationModel(nn.Module):
             len(CLASS_NAMES),
             tuple(cfg.get("pool_scales", [1, 2, 3, 6])),
         )
+        if bool(cfg.get("pretrained", False)):
+            self.load_ade20k_checkpoint(Path(str(cfg["checkpoint_path"])))
         apply_timm_freeze_policy(self, cfg)
+
+    def load_ade20k_checkpoint(self, checkpoint_path: Path) -> None:
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"InternImage ADE20K checkpoint not found: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        state = checkpoint.get("state_dict", checkpoint)
+        backbone_state = {key.removeprefix("backbone."): value for key, value in state.items() if key.startswith("backbone.")}
+        backbone_result = self.backbone.load_state_dict(backbone_state, strict=False)
+
+        mapped = {}
+        for key, value in state.items():
+            target = None
+            if key.startswith("decode_head.psp_modules."):
+                target = key.replace("decode_head.psp_modules.", "ppm.").replace(".conv.", ".0.").replace(".bn.", ".1.")
+            elif key.startswith("decode_head.bottleneck."):
+                target = key.replace("decode_head.bottleneck.", "ppm_bottleneck.").replace("conv.", "0.").replace("bn.", "1.")
+            elif key.startswith("decode_head.lateral_convs."):
+                target = key.replace("decode_head.lateral_convs.", "lateral.").replace(".conv.", ".0.").replace(".bn.", ".1.")
+            elif key.startswith("decode_head.fpn_convs."):
+                target = key.replace("decode_head.fpn_convs.", "fpn.").replace(".conv.", ".0.").replace(".bn.", ".1.")
+            elif key.startswith("decode_head.fpn_bottleneck."):
+                target = key.replace("decode_head.fpn_bottleneck.", "fpn_bottleneck.").replace("conv.", "0.").replace("bn.", "1.")
+            if target is not None:
+                mapped[target] = value
+        head_result = self.decode_head.load_state_dict(mapped, strict=False)
+        loaded = len(backbone_state) + len(mapped)
+        if loaded == 0:
+            raise RuntimeError(f"No ADE20K weights were loaded from {checkpoint_path}")
+        print(
+            f"Loaded InternImage ADE20K weights: {loaded} tensors; "
+            f"backbone missing={len(backbone_result.missing_keys)}, head missing={len(head_result.missing_keys)}"
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone.forward_features_seq_out(x)
