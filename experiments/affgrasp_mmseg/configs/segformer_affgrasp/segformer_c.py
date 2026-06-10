@@ -20,6 +20,9 @@ EXPERIMENT = {
     "crop_size": 448,
     "lr": 1e-3,
     "backbone_lr": 1e-4,
-    "weight_decay": 1e-4,
+    "weight_decay": 5e-4,
+    "lr_milestones": [10, 12],
+    "lr_gamma": 0.1,
+    "seed": 0,
     "focal_alpha": 1.0,
 }

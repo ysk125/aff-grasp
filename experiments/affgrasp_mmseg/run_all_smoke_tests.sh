@@ -35,7 +35,9 @@ for config in "${CONFIGS[@]}"; do
     --epochs "${EPOCHS}" \
     --max-train-samples "${MAX_TRAIN}" \
     --max-val-samples "${MAX_VAL}" \
-    --gpu "${GPU_ID}"
+    --max-test-samples "${MAX_VAL}" \
+    --gpu "${GPU_ID}" \
+    --test-after
 done
 
 echo

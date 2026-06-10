@@ -13,6 +13,8 @@ Implemented:
 - InternImage is optional and is not run by default until its DCNv3 build passes
 - SegFormer-B5 is initialized from the NVIDIA ADE20K checkpoint
 - InternImage-S and its UPerNet head are initialized from the official ADE20K checkpoint
+- InternImage-S uses the official ADE20K architecture settings (`drop_path_rate=0.3`, `layer_scale=1.0`, `post_norm=True`)
+- The InternImage auxiliary FCN head is initialized from ADE20K and trained with loss weight `0.4`
 - Shared Aff-Grasp dataset conversion for `ego_train` and AED
 - Fixed train/val/test split generation under `experiments/splits`
 - 9-class class-index target masks
@@ -21,12 +23,18 @@ Implemented:
 - Parameter count logging
 - Prediction panels
 - Checkpoint and metrics outputs
+- Fixed seed `0`, horizontal/vertical train augmentation, and epoch 10/12 learning-rate decay
+- AED per-image metrics and worst-case panels
 - Detached Docker launcher for q
 
 Important note: SegFormer no longer depends on `timm` model names. The q image
 must include `transformers`, and `preflight.py --check-timm-models` now also
 checks whether the Transformers SegFormer model can be instantiated. InternImage
 uses the official OpenGVLab implementation and its DCNv3 CUDA extension.
+
+The training loop is a project-local PyTorch implementation. It does not use
+the MMSegmentation runner, optimizer constructor, or 160k ADE20K schedule.
+Do not describe these runs as using the stock MMSegmentation training recipe.
 
 ## Before Running on q
 
@@ -113,7 +121,7 @@ bash experiments/affgrasp_mmseg/run_all_smoke_tests.sh 0
 By default this runs the four production SegFormer configs sequentially with
 one epoch, eight train samples, and four validation samples. It checks data
 loading, model creation, freezing policy, LoRA, loss, metrics, checkpointing,
-and visualization without occupying the GPU for long.
+visualization, and a four-image AED evaluation without occupying the GPU for long.
 
 Smoke-test outputs:
 
@@ -171,6 +179,9 @@ metrics.csv
 visualizations/
 test/metrics.csv
 test/visualizations/
+test/image_manifest.csv
+test/worst_cases.csv
+test/worst_cases/
 config.py
 config.yaml
 ```

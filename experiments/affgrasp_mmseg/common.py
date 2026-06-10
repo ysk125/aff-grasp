@@ -88,6 +88,15 @@ def write_csv(path: Path, rows: list[dict], fieldnames: list[str] | None = None)
         writer.writerows(rows)
 
 
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def object_from_label(path: Path) -> str | None:
     noun = path.name.lower().split("_", 1)[0].split("-", 1)[0]
     return noun if noun in AFFORDANCE_BY_OBJECT else None
@@ -185,7 +194,14 @@ def resize_and_crop(
         left = max_offset // 2
         top = max_offset // 2
     box = (left, top, left + crop_size, top + crop_size)
-    return image.crop(box), target.crop(box)
+    image, target = image.crop(box), target.crop(box)
+    if train and random.random() < 0.5:
+        image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        target = target.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    if train and random.random() < 0.5:
+        image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        target = target.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    return image, target
 
 
 def image_to_tensor(image: Image.Image) -> torch.Tensor:
@@ -213,7 +229,11 @@ class AffGraspSegDataset(Dataset):
         else:
             target_arr = np.load(target_path).astype(np.uint8)
         target = Image.fromarray(target_arr, mode="L")
-        image, target = resize_and_crop(image, target, self.resize_size, self.crop_size, self.train)
+        if self.source == "aed":
+            image = image.resize((self.crop_size, self.crop_size), Image.Resampling.BICUBIC)
+            target = target.resize((self.crop_size, self.crop_size), Image.Resampling.NEAREST)
+        else:
+            image, target = resize_and_crop(image, target, self.resize_size, self.crop_size, self.train)
         return {
             "image": image_to_tensor(image),
             "target": torch.from_numpy(np.asarray(target, dtype=np.int64)),
@@ -396,6 +416,17 @@ class UPerNetHead(nn.Module):
         return self.classifier(self.dropout(self.fpn_bottleneck(torch.cat(fpn_outputs, dim=1))))
 
 
+class AuxiliaryFCNHead(nn.Module):
+    def __init__(self, in_channels: int, channels: int, num_classes: int, dropout: float = 0.1):
+        super().__init__()
+        self.conv = ConvNormAct(in_channels, channels)
+        self.dropout = nn.Dropout2d(dropout)
+        self.classifier = nn.Conv2d(channels, num_classes, kernel_size=1)
+
+    def forward(self, feature: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.dropout(self.conv(feature)))
+
+
 class OfficialInternImageSegmentationModel(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
@@ -422,6 +453,7 @@ class OfficialInternImageSegmentationModel(nn.Module):
 
         backbone_cfg = dict(cfg.get("internimage_backbone", {}))
         self.backbone = module.InternImage(num_classes=0, **backbone_cfg)
+        self.backbone.conv_head = nn.Identity()
         channels = [int(ch) for ch in cfg.get("feature_channels", [80, 160, 320, 640])]
         self.adapters = nn.ModuleList(
             [FeatureAdapter(ch, int(cfg.get("adapter_reduction", 4))) if cfg.get("use_adapters") else nn.Identity() for ch in channels]
@@ -432,6 +464,12 @@ class OfficialInternImageSegmentationModel(nn.Module):
             len(CLASS_NAMES),
             tuple(cfg.get("pool_scales", [1, 2, 3, 6])),
         )
+        self.auxiliary_head = AuxiliaryFCNHead(
+            channels[2],
+            int(cfg.get("auxiliary_channels", 256)),
+            len(CLASS_NAMES),
+        )
+        self.auxiliary_loss_weight = float(cfg.get("auxiliary_loss_weight", 0.4))
         if bool(cfg.get("pretrained", False)):
             self.load_ade20k_checkpoint(Path(str(cfg["checkpoint_path"])))
         apply_timm_freeze_policy(self, cfg)
@@ -460,12 +498,26 @@ class OfficialInternImageSegmentationModel(nn.Module):
             if target is not None:
                 mapped[target] = value
         head_result = self.decode_head.load_state_dict(mapped, strict=False)
-        loaded = len(backbone_state) + len(mapped)
+        auxiliary_mapped = {}
+        for key, value in state.items():
+            if not key.startswith("auxiliary_head.convs.0."):
+                continue
+            suffix = key.removeprefix("auxiliary_head.convs.0.")
+            if suffix.startswith("conv."):
+                target = "conv.0." + suffix.removeprefix("conv.")
+            elif suffix.startswith("bn."):
+                target = "conv.1." + suffix.removeprefix("bn.")
+            else:
+                continue
+            auxiliary_mapped[target] = value
+        auxiliary_result = self.auxiliary_head.load_state_dict(auxiliary_mapped, strict=False)
+        loaded = len(backbone_state) + len(mapped) + len(auxiliary_mapped)
         if loaded == 0:
             raise RuntimeError(f"No ADE20K weights were loaded from {checkpoint_path}")
         print(
             f"Loaded InternImage ADE20K weights: {loaded} tensors; "
-            f"backbone missing={len(backbone_result.missing_keys)}, head missing={len(head_result.missing_keys)}"
+            f"backbone missing={len(backbone_result.missing_keys)}, head missing={len(head_result.missing_keys)}, "
+            f"auxiliary missing={len(auxiliary_result.missing_keys)}"
         )
         if backbone_result.missing_keys:
             print(f"InternImage backbone missing keys: {backbone_result.missing_keys}")
@@ -475,13 +527,24 @@ class OfficialInternImageSegmentationModel(nn.Module):
             print(f"InternImage head missing keys: {head_result.missing_keys}")
         if head_result.unexpected_keys:
             print(f"InternImage head unexpected keys: {head_result.unexpected_keys}")
+        if auxiliary_result.missing_keys:
+            print(f"InternImage auxiliary head missing keys: {auxiliary_result.missing_keys}")
+        if auxiliary_result.unexpected_keys:
+            print(f"InternImage auxiliary head unexpected keys: {auxiliary_result.unexpected_keys}")
+
+        validate_internimage_checkpoint_keys(backbone_result, head_result, auxiliary_result)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone.forward_features_seq_out(x)
         features = [feat.permute(0, 3, 1, 2).contiguous() for feat in features]
         outputs = [adapter(feat) for feat, adapter in zip(features, self.adapters)]
         logits = self.decode_head(outputs)
-        return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        logits = F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        if self.training:
+            auxiliary = self.auxiliary_head(outputs[2])
+            auxiliary = F.interpolate(auxiliary, size=x.shape[-2:], mode="bilinear", align_corners=False)
+            return logits, auxiliary
+        return logits
 
 
 def replace_lora_modules(
@@ -536,7 +599,7 @@ def apply_timm_freeze_policy(model: TimmSegmentationModel, cfg: dict) -> None:
         )
         if count == 0:
             raise RuntimeError(f"No LoRA target modules matched {targets!r}")
-    for name in ["adapters", "lateral", "fuse", "decode_head"]:
+    for name in ["adapters", "lateral", "fuse", "decode_head", "auxiliary_head"]:
         module = getattr(model, name, None)
         if module is not None:
             for param in module.parameters():
@@ -551,7 +614,7 @@ def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:
             param.requires_grad = False
     elif mode == "partial":
         for name, param in encoder.named_parameters():
-            param.requires_grad = any(token in name for token in ["block.2", "block.3", "patch_embeddings.3"])
+            param.requires_grad = any(token in name for token in ["block.2", "block.3", "patch_embeddings.2", "patch_embeddings.3"])
     elif mode == "full":
         for param in encoder.parameters():
             param.requires_grad = True
@@ -575,6 +638,29 @@ def apply_transformer_freeze_policy(model: nn.Module, cfg: dict) -> None:
         raise ValueError("Adapter mode is not implemented for the Transformers SegFormer backend.")
     for param in model.decode_head.parameters():
         param.requires_grad = True
+
+
+def validate_internimage_checkpoint_keys(backbone_result, head_result, auxiliary_result) -> None:
+    invalid_backbone_missing = list(backbone_result.missing_keys)
+    allowed_head_missing = {"classifier.weight", "classifier.bias"}
+    invalid_head_missing = [key for key in head_result.missing_keys if key not in allowed_head_missing]
+    invalid_auxiliary_missing = [key for key in auxiliary_result.missing_keys if key not in allowed_head_missing]
+    if (
+        invalid_backbone_missing
+        or backbone_result.unexpected_keys
+        or invalid_head_missing
+        or head_result.unexpected_keys
+        or invalid_auxiliary_missing
+        or auxiliary_result.unexpected_keys
+    ):
+        raise RuntimeError(
+            "InternImage ADE20K checkpoint is incompatible with the configured architecture: "
+            f"backbone_missing={invalid_backbone_missing}, "
+            f"backbone_unexpected={backbone_result.unexpected_keys}, "
+            f"head_missing={invalid_head_missing}, head_unexpected={head_result.unexpected_keys}, "
+            f"auxiliary_missing={invalid_auxiliary_missing}, "
+            f"auxiliary_unexpected={auxiliary_result.unexpected_keys}"
+        )
 
 
 def build_model(cfg: dict) -> nn.Module:
