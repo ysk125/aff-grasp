@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ else:
     from experiments.affgrasp_mmseg.common import (
         apply_transformer_freeze_policy,
         load_config,
+        validate_split_isolation,
         validate_internimage_checkpoint_keys,
     )
 
@@ -76,6 +78,27 @@ class AffGraspMmsegContractTests(unittest.TestCase):
         self.assertFalse(encoder.patch_embeddings[1].weight.requires_grad)
         self.assertTrue(encoder.patch_embeddings[2].weight.requires_grad)
         self.assertTrue(encoder.patch_embeddings[3].weight.requires_grad)
+
+    def test_split_validation_rejects_aed_in_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            train_root = root / "ego_train"
+            aed_root = root / "aed"
+            split_dir = root / "splits"
+            train_root.mkdir()
+            aed_root.mkdir()
+            split_dir.mkdir()
+            train_image = train_root / "train.jpg"
+            train_label = train_root / "train-label.png"
+            aed_image = aed_root / "test.jpg"
+            aed_label = aed_root / "test.npy"
+            for path in [train_image, train_label, aed_image, aed_label]:
+                path.touch()
+            (split_dir / "train.txt").write_text(f"{train_image}\t{train_label}\n")
+            (split_dir / "val.txt").write_text(f"{aed_image}\t{aed_label}\n")
+            (split_dir / "test.txt").write_text(f"{aed_image}\t{aed_label}\n")
+            with self.assertRaises(RuntimeError):
+                validate_split_isolation(split_dir, train_root, aed_root)
 
 
 if __name__ == "__main__":

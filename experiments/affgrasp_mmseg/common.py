@@ -148,6 +148,7 @@ def ensure_splits(
     split_dir.mkdir(parents=True, exist_ok=True)
     train_file, val_file, test_file = split_dir / "train.txt", split_dir / "val.txt", split_dir / "test.txt"
     if train_file.exists() and val_file.exists() and test_file.exists():
+        validate_split_isolation(split_dir, train_root, aed_root)
         return
     train_samples = discover_train_samples(train_root)
     rng = random.Random(seed)
@@ -163,6 +164,7 @@ def ensure_splits(
     train_file.write_text("\n".join(train_rows) + "\n")
     val_file.write_text("\n".join(val_rows) + "\n")
     test_file.write_text("\n".join(test_rows) + "\n")
+    validate_split_isolation(split_dir, train_root, aed_root)
 
 
 def read_split(path: Path) -> list[tuple[Path, Path]]:
@@ -173,6 +175,49 @@ def read_split(path: Path) -> list[tuple[Path, Path]]:
         image_path, target_path = line.split("\t")
         rows.append((Path(image_path), Path(target_path)))
     return rows
+
+
+def validate_split_isolation(split_dir: Path, train_root: Path, aed_root: Path) -> None:
+    train_root = train_root.resolve()
+    aed_root = aed_root.resolve()
+    split_rows = {
+        name: read_split(split_dir / f"{name}.txt")
+        for name in ("train", "val", "test")
+    }
+
+    image_sets = {
+        name: {image_path.resolve() for image_path, _ in rows}
+        for name, rows in split_rows.items()
+    }
+    overlap = {
+        "train_val": image_sets["train"] & image_sets["val"],
+        "train_test": image_sets["train"] & image_sets["test"],
+        "val_test": image_sets["val"] & image_sets["test"],
+    }
+    nonempty_overlap = {name: values for name, values in overlap.items() if values}
+    if nonempty_overlap:
+        raise RuntimeError(f"Dataset split leakage detected: {nonempty_overlap}")
+
+    for split_name in ("train", "val"):
+        invalid = [
+            str(path)
+            for row in split_rows[split_name]
+            for path in row
+            if not path.resolve().is_relative_to(train_root)
+        ]
+        if invalid:
+            raise RuntimeError(
+                f"{split_name}.txt must contain only ego_train assets; invalid paths: {invalid[:5]}"
+            )
+
+    invalid_test = [
+        str(path)
+        for row in split_rows["test"]
+        for path in row
+        if not path.resolve().is_relative_to(aed_root)
+    ]
+    if invalid_test:
+        raise RuntimeError(f"test.txt must contain only AED assets; invalid paths: {invalid_test[:5]}")
 
 
 def resize_and_crop(
