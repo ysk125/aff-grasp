@@ -6,6 +6,7 @@ CONTAINER_NAME="${2:-affgrasp-mmseg-all}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 INCLUDE_INTERNIMAGE="${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}"
+OUTPUT_ROOT="${AFFGRASP_OUTPUT_ROOT:-outputs}"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   echo "Container already exists: ${CONTAINER_NAME}" >&2
@@ -27,6 +28,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
   --env AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE="${INCLUDE_INTERNIMAGE}" \
+  --env AFFGRASP_OUTPUT_ROOT="${OUTPUT_ROOT}" \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
@@ -41,3 +43,4 @@ else
 fi
 echo "Follow logs: docker logs -f ${CONTAINER_NAME}"
 echo "Check status: docker ps -a --filter name=${CONTAINER_NAME}"
+echo "Outputs: ${OUTPUT_ROOT}/"
