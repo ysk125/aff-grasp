@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 INCLUDE_INTERNIMAGE="${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}"
 OUTPUT_ROOT="${AFFGRASP_OUTPUT_ROOT:-outputs}"
+EXPERIMENT_FAMILY="${AFFGRASP_EXPERIMENT_FAMILY:-all}"
 RUNTIME_TMP="/dev/shm/affgrasp-tmp"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
@@ -36,6 +37,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env NUMEXPR_NUM_THREADS=4 \
   --env AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE="${INCLUDE_INTERNIMAGE}" \
   --env AFFGRASP_OUTPUT_ROOT="${OUTPUT_ROOT}" \
+  --env AFFGRASP_EXPERIMENT_FAMILY="${EXPERIMENT_FAMILY}" \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
@@ -44,7 +46,11 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   "
 
 echo "Started ${CONTAINER_NAME} on GPU ${GPU_ID}."
-if [ "${INCLUDE_INTERNIMAGE}" = "1" ]; then
+if [ "${EXPERIMENT_FAMILY}" = "internimage" ]; then
+  echo "This runs the three InternImage experiments sequentially."
+elif [ "${EXPERIMENT_FAMILY}" = "segformer" ]; then
+  echo "This runs the four SegFormer experiments sequentially."
+elif [ "${INCLUDE_INTERNIMAGE}" = "1" ]; then
   echo "This runs all seven SegFormer/InternImage experiments sequentially."
 else
   echo "This runs the four SegFormer experiments sequentially."

@@ -82,6 +82,10 @@ def optimizer_group_name(name: str) -> str:
     return "decoder"
 
 
+def should_drop_last(dataset_size: int, batch_size: int) -> bool:
+    return dataset_size % batch_size == 1
+
+
 def build_optimizer(model, cfg: dict) -> torch.optim.Optimizer:
     params_by_group = {"backbone": [], "decoder": [], "classifier": [], "peft": []}
     learning_rates = {
@@ -158,7 +162,25 @@ def main() -> int:
         val_rows = val_rows[: args.max_val_samples]
     train_dataset = AffGraspSegDataset(train_rows, cfg["resize_size"], cfg["crop_size"], train=True, source="train")
     val_dataset = AffGraspSegDataset(val_rows, cfg["resize_size"], cfg["crop_size"], train=False, source="train")
-    train_loader = DataLoader(train_dataset, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"], pin_memory=True)
+    drop_last = should_drop_last(len(train_dataset), int(cfg["batch_size"]))
+    print(
+        json.dumps(
+            {
+                "train_dataset_size": len(train_dataset),
+                "train_batch_size": int(cfg["batch_size"]),
+                "train_drop_last": drop_last,
+            },
+            indent=2,
+        )
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg["batch_size"],
+        shuffle=True,
+        num_workers=cfg["num_workers"],
+        pin_memory=True,
+        drop_last=drop_last,
+    )
     val_loader = DataLoader(val_dataset, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], pin_memory=True)
 
     model = build_model(cfg).to(device)

@@ -203,6 +203,19 @@ SegFormer encoder stages, stage 3 and stage 4 (`block.2` and `block.3` in the
 Transformers implementation), targeting the attention `query` and `value`
 linear layers.
 
+To resume only the InternImage experiments after the SegFormer runs have
+already completed:
+
+```bash
+AFFGRASP_OUTPUT_ROOT=outputs_full_lrfix \
+AFFGRASP_EXPERIMENT_FAMILY=internimage \
+AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE=1 \
+bash scripts/run_all_mmseg_experiments_detached.sh 1 affgrasp-mmseg-internimage
+```
+
+The single-GPU loader drops the final training batch only when its size would
+be one. This avoids BatchNorm failure in the UPerNet `1x1` pooling branch.
+
 Do not start multiple training jobs on the same GPU. The all-run script is
 sequential by design. Remove the stopped container after checking logs:
 

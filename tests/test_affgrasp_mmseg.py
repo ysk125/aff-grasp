@@ -19,7 +19,7 @@ else:
         validate_split_isolation,
         validate_internimage_checkpoint_keys,
     )
-    from experiments.affgrasp_mmseg.train_affgrasp_mmseg import optimizer_group_name
+    from experiments.affgrasp_mmseg.train_affgrasp_mmseg import optimizer_group_name, should_drop_last
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +107,12 @@ class AffGraspMmsegContractTests(unittest.TestCase):
         self.assertEqual(optimizer_group_name("model.decode_head.classifier.weight"), "classifier")
         self.assertEqual(optimizer_group_name("model.segformer.encoder.block.3.query.lora_a.weight"), "peft")
         self.assertEqual(optimizer_group_name("adapters.2.net.0.weight"), "peft")
+
+    def test_singleton_final_batch_is_dropped(self) -> None:
+        self.assertTrue(should_drop_last(281, 4))
+        self.assertTrue(should_drop_last(281, 8))
+        self.assertFalse(should_drop_last(280, 4))
+        self.assertFalse(should_drop_last(282, 4))
 
 
 if __name__ == "__main__":

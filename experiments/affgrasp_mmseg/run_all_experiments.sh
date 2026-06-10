@@ -3,27 +3,45 @@ set -euo pipefail
 
 GPU_ID="${1:-0}"
 OUTPUT_ROOT="${AFFGRASP_OUTPUT_ROOT:-outputs}"
+EXPERIMENT_FAMILY="${AFFGRASP_EXPERIMENT_FAMILY:-all}"
 
-CONFIGS=(
+SEGFORMER_CONFIGS=(
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_a.py"
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_d.py"
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_b.py"
   "experiments/affgrasp_mmseg/configs/segformer_affgrasp/segformer_c.py"
 )
 
-if [ "${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}" = "1" ]; then
-  CONFIGS+=(
-    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py"
-    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_d.py"
-    "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_c.py"
-  )
-fi
+INTERNIMAGE_CONFIGS=(
+  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py"
+  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_d.py"
+  "experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_c.py"
+)
+
+case "${EXPERIMENT_FAMILY}" in
+  segformer)
+    CONFIGS=("${SEGFORMER_CONFIGS[@]}")
+    ;;
+  internimage)
+    CONFIGS=("${INTERNIMAGE_CONFIGS[@]}")
+    ;;
+  all)
+    CONFIGS=("${SEGFORMER_CONFIGS[@]}")
+    if [ "${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}" = "1" ]; then
+      CONFIGS+=("${INTERNIMAGE_CONFIGS[@]}")
+    fi
+    ;;
+  *)
+    echo "Unknown AFFGRASP_EXPERIMENT_FAMILY: ${EXPERIMENT_FAMILY}" >&2
+    exit 2
+    ;;
+esac
 
 echo "== preflight =="
 python experiments/affgrasp_mmseg/preflight.py --check-timm-models
 
 mkdir -p "${OUTPUT_ROOT}/_logs"
-summary="${OUTPUT_ROOT}/all_experiments_status.tsv"
+summary="${OUTPUT_ROOT}/${EXPERIMENT_FAMILY}_experiments_status.tsv"
 printf "experiment\tconfig\tstatus\tstarted_at\tfinished_at\n" > "${summary}"
 
 for config in "${CONFIGS[@]}"; do
