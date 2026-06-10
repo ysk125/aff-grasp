@@ -24,6 +24,7 @@ Implemented:
 - Prediction panels
 - Checkpoint and metrics outputs
 - Fixed seed `0`, horizontal/vertical train augmentation, and epoch 10/12 learning-rate decay
+- Parameter-group learning rates: backbone `6e-5`, pretrained decoder `6e-4`, new classifier and LoRA/Adapter `1e-3`
 - AED per-image metrics and worst-case panels
 - Detached Docker launcher for q
 

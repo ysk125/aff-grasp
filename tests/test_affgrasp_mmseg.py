@@ -19,6 +19,7 @@ else:
         validate_split_isolation,
         validate_internimage_checkpoint_keys,
     )
+    from experiments.affgrasp_mmseg.train_affgrasp_mmseg import optimizer_group_name
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,13 @@ class AffGraspMmsegContractTests(unittest.TestCase):
             (split_dir / "test.txt").write_text(f"{aed_image}\t{aed_label}\n")
             with self.assertRaises(RuntimeError):
                 validate_split_isolation(split_dir, train_root, aed_root)
+
+    def test_optimizer_parameter_groups(self) -> None:
+        self.assertEqual(optimizer_group_name("model.segformer.encoder.block.3.weight"), "backbone")
+        self.assertEqual(optimizer_group_name("model.decode_head.linear_c.0.weight"), "decoder")
+        self.assertEqual(optimizer_group_name("model.decode_head.classifier.weight"), "classifier")
+        self.assertEqual(optimizer_group_name("model.segformer.encoder.block.3.query.lora_a.weight"), "peft")
+        self.assertEqual(optimizer_group_name("adapters.2.net.0.weight"), "peft")
 
 
 if __name__ == "__main__":

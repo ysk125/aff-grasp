@@ -72,25 +72,33 @@ def save_visualizations(model, dataset, output_dir: Path, device, limit: int = 2
     write_csv(output_dir / "visualizations.csv", rows)
 
 
+def optimizer_group_name(name: str) -> str:
+    if any(token in name for token in ["lora_a", "lora_b", "adapters."]):
+        return "peft"
+    if ".classifier." in name:
+        return "classifier"
+    if name.startswith("model.segformer.encoder.") or name.startswith("backbone."):
+        return "backbone"
+    return "decoder"
+
+
 def build_optimizer(model, cfg: dict) -> torch.optim.Optimizer:
-    backbone_params = []
-    task_params = []
-    backbone_lr = float(cfg.get("backbone_lr", cfg["lr"]))
-    task_lr = float(cfg["lr"])
+    params_by_group = {"backbone": [], "decoder": [], "classifier": [], "peft": []}
+    learning_rates = {
+        "backbone": float(cfg.get("backbone_lr", 6e-5)),
+        "decoder": float(cfg.get("decoder_lr", 6e-4)),
+        "classifier": float(cfg.get("classifier_lr", cfg.get("lr", 1e-3))),
+        "peft": float(cfg.get("peft_lr", cfg.get("lr", 1e-3))),
+    }
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        is_backbone = name.startswith("model.segformer.encoder.") or name.startswith("backbone.")
-        is_peft = any(token in name for token in ["lora_a", "lora_b", "adapters."])
-        if is_backbone and not is_peft:
-            backbone_params.append(param)
-        else:
-            task_params.append(param)
-    groups = []
-    if backbone_params:
-        groups.append({"params": backbone_params, "lr": backbone_lr, "group_name": "backbone"})
-    if task_params:
-        groups.append({"params": task_params, "lr": task_lr, "group_name": "task"})
+        params_by_group[optimizer_group_name(name)].append(param)
+    groups = [
+        {"params": params, "lr": learning_rates[name], "group_name": name}
+        for name, params in params_by_group.items()
+        if params
+    ]
     if not groups:
         raise RuntimeError("No trainable parameters found for optimizer")
     print(
