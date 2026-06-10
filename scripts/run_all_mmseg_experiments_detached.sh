@@ -21,6 +21,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --workdir "${ROOT_DIR}" \
   --env CUDA_DEVICE_ORDER=PCI_BUS_ID \
   --env CUDA_VISIBLE_DEVICES=0 \
+  --env PYTHONPATH="${ROOT_DIR}" \
   --env OMP_NUM_THREADS=4 \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
