@@ -53,7 +53,7 @@ def main() -> int:
             names = set(timm.list_models())
             report["timm_has_mit_b0"] = "mit_b0" in names
             report["timm_has_internimage_t_1k_224"] = "internimage_t_1k_224" in names
-        except ImportError as exc:
+        except Exception as exc:
             report["timm_warning"] = str(exc)
         try:
             import transformers

@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 INCLUDE_INTERNIMAGE="${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}"
 OUTPUT_ROOT="${AFFGRASP_OUTPUT_ROOT:-outputs}"
+RUNTIME_TMP="${ROOT_DIR}/.runtime-tmp"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   echo "Container already exists: ${CONTAINER_NAME}" >&2
@@ -16,6 +17,7 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
+mkdir -p "${RUNTIME_TMP}"
 docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --name "${CONTAINER_NAME}" \
   --mount "type=bind,source=${ROOT_DIR},target=${ROOT_DIR}" \
@@ -23,6 +25,10 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env CUDA_DEVICE_ORDER=PCI_BUS_ID \
   --env CUDA_VISIBLE_DEVICES=0 \
   --env PYTHONPATH="${ROOT_DIR}" \
+  --env TMPDIR="${RUNTIME_TMP}" \
+  --env TMP="${RUNTIME_TMP}" \
+  --env TEMP="${RUNTIME_TMP}" \
+  --env TORCHINDUCTOR_CACHE_DIR="${RUNTIME_TMP}/torchinductor" \
   --env OMP_NUM_THREADS=4 \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \

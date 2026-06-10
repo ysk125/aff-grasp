@@ -9,6 +9,7 @@ results/
 analysis/
 result/
 outputs/
+.runtime-tmp/
 experiments/splits/
 *.pth
 *.pt
