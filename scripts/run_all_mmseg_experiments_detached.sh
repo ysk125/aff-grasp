@@ -5,6 +5,7 @@ GPU_ID="${1:-0}"
 CONTAINER_NAME="${2:-affgrasp-mmseg-all}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
+INCLUDE_INTERNIMAGE="${AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE:-0}"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   echo "Container already exists: ${CONTAINER_NAME}" >&2
@@ -24,6 +25,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
+  --env AFFGRASP_INCLUDE_EXPERIMENTAL_INTERNIMAGE="${INCLUDE_INTERNIMAGE}" \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
@@ -31,6 +33,10 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   "
 
 echo "Started ${CONTAINER_NAME} on GPU ${GPU_ID}."
-echo "This runs all seven experiments sequentially, not in parallel."
+if [ "${INCLUDE_INTERNIMAGE}" = "1" ]; then
+  echo "This runs all seven SegFormer/InternImage experiments sequentially."
+else
+  echo "This runs the four SegFormer experiments sequentially."
+fi
 echo "Follow logs: docker logs -f ${CONTAINER_NAME}"
 echo "Check status: docker ps -a --filter name=${CONTAINER_NAME}"
