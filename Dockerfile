@@ -39,6 +39,13 @@ RUN python -m pip install \
 COPY requirements-affgrasp.txt /tmp/requirements-affgrasp.txt
 RUN python -m pip install -r /tmp/requirements-affgrasp.txt
 
+ARG INSTALL_INTERNIMAGE=0
+RUN if [ "${INSTALL_INTERNIMAGE}" = "1" ]; then \
+      python -m pip install -U openmim mmengine && \
+      python -m mim install "mmcv>=2.0.0,<2.2.0" && \
+      python -m pip install "mmpretrain>=1.2.0,<1.3.0"; \
+    fi
+
 ARG USER_ID=1000
 ARG USER_NAME=user
 ARG GROUP_ID=1000

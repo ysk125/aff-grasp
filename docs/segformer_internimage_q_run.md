@@ -62,15 +62,24 @@ disabled and run SegFormer first.
 
 ## Optional InternImage Setup
 
-InternImage is not installed by the base Docker image because its `mmcv`/DCNv3
-dependency stack is heavier and may need server-specific wheel resolution. After
-SegFormer smoke tests pass, install and validate the optional backend inside the
-Docker container:
+InternImage is not installed by the default Docker build because its `mmcv`/DCNv3
+dependency stack is heavier and may need server-specific wheel resolution. Build
+an InternImage-enabled image on the q host:
 
 ```bash
-bash scripts/install_internimage_deps.sh
+AFFGRASP_WITH_INTERNIMAGE=1 bash scripts/build_docker.sh
+bash scripts/run_docker.sh 1
+```
+
+Then validate the backend inside the Docker container:
+
+```bash
 python experiments/affgrasp_mmseg/preflight.py --check-timm-models --check-internimage
 ```
+
+`scripts/install_internimage_deps.sh` remains available for interactive dependency
+debugging, but dependencies installed interactively disappear when that container
+is removed. Use the build option for smoke tests and detached full runs.
 
 Expected InternImage fields:
 
