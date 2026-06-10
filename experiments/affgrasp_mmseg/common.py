@@ -12,8 +12,10 @@ import csv
 import importlib.util
 import json
 import math
+import os
 import random
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -391,30 +393,32 @@ class UPerNetHead(nn.Module):
         return self.classifier(self.fpn_bottleneck(torch.cat(fpn_outputs, dim=1)))
 
 
-class MMPretrainInternImageSegmentationModel(nn.Module):
+class OfficialInternImageSegmentationModel(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
+        internimage_root = Path(os.environ.get("INTERNIMAGE_ROOT", "/opt/InternImage/classification"))
+        module_path = internimage_root / "models" / "intern_image.py"
+        if not module_path.exists():
+            raise RuntimeError(
+                f"Official InternImage source was not found at {module_path}. "
+                "Build the Docker image with AFFGRASP_WITH_INTERNIMAGE=1."
+            )
+        if str(internimage_root) not in sys.path:
+            sys.path.insert(0, str(internimage_root))
+        spec = importlib.util.spec_from_file_location("affgrasp_official_intern_image", module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load official InternImage module: {module_path}")
+        module = importlib.util.module_from_spec(spec)
         try:
-            from mmpretrain.registry import MODELS
+            spec.loader.exec_module(module)
         except ImportError as exc:
             raise RuntimeError(
-                "InternImage experiments require mmpretrain/mmcv InternImage support. "
-                "Install the optional InternImage dependencies inside the Docker image."
+                "Official InternImage or its DCNv3 CUDA extension could not be imported. "
+                "Rebuild with AFFGRASP_WITH_INTERNIMAGE=1 and inspect the DCNv3 build log."
             ) from exc
 
-        backbone_cfg = dict(cfg.get("mmpretrain_backbone", {}))
-        if not backbone_cfg:
-            backbone_cfg = {
-                "type": "InternImage",
-                "channels": 80,
-                "depths": [4, 4, 21, 4],
-                "groups": [5, 10, 20, 40],
-                "mlp_ratio": 4.0,
-                "drop_path_rate": 0.2,
-                "out_indices": (0, 1, 2, 3),
-            }
-        backbone_cfg.setdefault("out_indices", (0, 1, 2, 3))
-        self.backbone = MODELS.build(backbone_cfg)
+        backbone_cfg = dict(cfg.get("internimage_backbone", {}))
+        self.backbone = module.InternImage(num_classes=0, **backbone_cfg)
         channels = [int(ch) for ch in cfg.get("feature_channels", [80, 160, 320, 640])]
         self.adapters = nn.ModuleList(
             [FeatureAdapter(ch, int(cfg.get("adapter_reduction", 4))) if cfg.get("use_adapters") else nn.Identity() for ch in channels]
@@ -428,9 +432,8 @@ class MMPretrainInternImageSegmentationModel(nn.Module):
         apply_timm_freeze_policy(self, cfg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(x)
-        if isinstance(features, torch.Tensor):
-            features = [features]
+        features = self.backbone.forward_features_seq_out(x)
+        features = [feat.permute(0, 3, 1, 2).contiguous() for feat in features]
         outputs = [adapter(feat) for feat, adapter in zip(features, self.adapters)]
         logits = self.decode_head(outputs)
         return F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
@@ -533,9 +536,9 @@ def build_model(cfg: dict) -> nn.Module:
     if cfg.get("model_name") == "segformer":
         return SegFormerSegmentationModel(cfg)
     if cfg.get("model_name") == "internimage":
-        backend = cfg.get("backend", "mmpretrain")
-        if backend == "mmpretrain":
-            return MMPretrainInternImageSegmentationModel(cfg)
+        backend = cfg.get("backend", "official")
+        if backend == "official":
+            return OfficialInternImageSegmentationModel(cfg)
         if backend == "timm":
             return TimmSegmentationModel(cfg)
         raise ValueError(f"Unknown InternImage backend: {backend}")

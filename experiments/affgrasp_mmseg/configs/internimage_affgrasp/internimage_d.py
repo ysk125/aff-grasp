@@ -2,15 +2,14 @@ EXPERIMENT = {
     "model_name": "internimage",
     "experiment_type": "internimage_d",
     "backbone": "internimage_s_1k_224",
-    "backend": "mmpretrain",
-    "mmpretrain_backbone": {
-        "type": "InternImage",
+    "backend": "official",
+    "internimage_backbone": {
+        "core_op": "DCNv3",
         "channels": 80,
         "depths": [4, 4, 21, 4],
         "groups": [5, 10, 20, 40],
         "mlp_ratio": 4.0,
         "drop_path_rate": 0.2,
-        "out_indices": (0, 1, 2, 3),
     },
     "feature_channels": [80, 160, 320, 640],
     "decoder_channels": 512,

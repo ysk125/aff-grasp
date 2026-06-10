@@ -1,25 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m pip install -U openmim mmengine
-python -m mim install "mmcv>=2.0.0,<2.2.0"
-python -m pip install "mmpretrain>=1.2.0,<1.3.0"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INTERNIMAGE_DIR="${ROOT_DIR}/third_party/InternImage"
 
-python - <<'PY'
-import mmpretrain
-from mmpretrain.registry import MODELS
+if [ ! -d "${INTERNIMAGE_DIR}/.git" ]; then
+  git clone --depth 1 https://github.com/OpenGVLab/InternImage.git "${INTERNIMAGE_DIR}"
+fi
 
-model = MODELS.build(
-    dict(
-        type="InternImage",
-        channels=80,
-        depths=[4, 4, 21, 4],
-        groups=[5, 10, 20, 40],
-        mlp_ratio=4.0,
-        drop_path_rate=0.2,
-        out_indices=(0, 1, 2, 3),
-    )
-)
-print("mmpretrain", getattr(mmpretrain, "__version__", "unknown"))
-print("InternImage backend OK:", type(model).__name__)
-PY
+cd "${INTERNIMAGE_DIR}/classification/ops_dcnv3"
+TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.0;7.5}" MAX_JOBS="${MAX_JOBS:-4}" sh ./make.sh
+python test.py
+
+echo "Set before running experiments:"
+echo "export INTERNIMAGE_ROOT=${INTERNIMAGE_DIR}/classification"

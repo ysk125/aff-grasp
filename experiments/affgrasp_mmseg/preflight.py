@@ -76,14 +76,6 @@ def main() -> int:
     if args.check_internimage:
         intern_config = Path("experiments/affgrasp_mmseg/configs/internimage_affgrasp/internimage_a.py")
         try:
-            import mmpretrain
-
-            report["mmpretrain_available"] = True
-            report["mmpretrain_version"] = getattr(mmpretrain, "__version__", "unknown")
-        except ImportError as exc:
-            report["mmpretrain_available"] = False
-            report["mmpretrain_warning"] = str(exc)
-        try:
             cfg = load_config(intern_config)
             model = build_model(cfg)
             report["internimage_check_config"] = str(intern_config.resolve())

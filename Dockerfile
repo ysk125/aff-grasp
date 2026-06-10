@@ -5,6 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Tokyo \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    INTERNIMAGE_ROOT=/opt/InternImage/classification \
+    TORCH_CUDA_ARCH_LIST="7.0;7.5" \
     LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/torch/lib:${LD_LIBRARY_PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,9 +43,10 @@ RUN python -m pip install -r /tmp/requirements-affgrasp.txt
 
 ARG INSTALL_INTERNIMAGE=0
 RUN if [ "${INSTALL_INTERNIMAGE}" = "1" ]; then \
-      python -m pip install -U openmim mmengine && \
-      python -m mim install "mmcv>=2.0.0,<2.2.0" && \
-      python -m pip install "mmpretrain>=1.2.0,<1.3.0"; \
+      git clone --depth 1 https://github.com/OpenGVLab/InternImage.git /opt/InternImage && \
+      cd /opt/InternImage/classification/ops_dcnv3 && \
+      MAX_JOBS=4 sh ./make.sh && \
+      python test.py; \
     fi
 
 ARG USER_ID=1000

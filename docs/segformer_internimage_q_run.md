@@ -9,8 +9,8 @@ not runnable or tracked by Git. The experiment sources have been restored under
 Implemented:
 
 - SegFormer A/B/C/D experiment configs using MiT-B5 with the SegFormer MLP decode head
-- InternImage A/C/D experiment configs using InternImage-S with a UPerNet decode head
-- InternImage A/C/D configs are retained as experimental placeholders, but are not run by default
+- InternImage A/C/D experiment configs using the official InternImage-S backbone with a UPerNet decode head
+- InternImage is optional and is not run by default until its DCNv3 build passes
 - Shared Aff-Grasp dataset conversion for `ego_train` and AED
 - Fixed train/val/test split generation under `experiments/splits`
 - 9-class class-index target masks
@@ -24,8 +24,7 @@ Implemented:
 Important note: SegFormer no longer depends on `timm` model names. The q image
 must include `transformers`, and `preflight.py --check-timm-models` now also
 checks whether the Transformers SegFormer model can be instantiated. InternImage
-uses the MMPretrain InternImage backend and requires optional `mmcv`/`mmpretrain`
-dependencies before it can be enabled.
+uses the official OpenGVLab implementation and its DCNv3 CUDA extension.
 
 ## Before Running on q
 
@@ -62,8 +61,8 @@ disabled and run SegFormer first.
 
 ## Optional InternImage Setup
 
-InternImage is not installed by the default Docker build because its `mmcv`/DCNv3
-dependency stack is heavier and may need server-specific wheel resolution. Build
+InternImage is not installed by the default Docker build because its DCNv3 CUDA
+extension must be compiled for the server GPU architecture. Build
 an InternImage-enabled image on the q host:
 
 ```bash
@@ -77,15 +76,14 @@ Then validate the backend inside the Docker container:
 python experiments/affgrasp_mmseg/preflight.py --check-timm-models --check-internimage
 ```
 
-`scripts/install_internimage_deps.sh` remains available for interactive dependency
-debugging, but dependencies installed interactively disappear when that container
-is removed. Use the build option for smoke tests and detached full runs.
+`scripts/install_internimage_deps.sh` remains available for interactive DCNv3
+debugging. Use the Docker build option for smoke tests and detached full runs.
 
 Expected InternImage fields:
 
 ```text
-mmpretrain_available: true
-internimage_model_class: MMPretrainInternImageSegmentationModel
+internimage_backend: official
+internimage_model_class: OfficialInternImageSegmentationModel
 ```
 
 The model families are selected to keep total capacity in the same broad range
