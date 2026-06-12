@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from experiments.affgrasp_mmseg.common import (
     AffGraspSegDataset,
+    CLASS_NAMES,
     MetricState,
     build_model,
     discover_aed_samples,
@@ -22,6 +23,13 @@ from experiments.affgrasp_mmseg.common import (
     read_split,
     save_panel,
     write_csv,
+)
+
+
+from experiments.affgrasp_mmseg.diagnostics import (
+    confusion_matrix as diagnostic_confusion_matrix,
+    metrics_from_confusion as diagnostic_metrics_from_confusion,
+    write_diagnostic_outputs,
 )
 
 
@@ -34,6 +42,7 @@ def evaluate(
     device,
     cfg: dict | None = None,
     max_samples: int | None = None,
+    diagnostics_only: bool = False,
 ) -> dict:
     cfg = cfg or load_config(config_path)
     test_file = split_dir / "test.txt"
@@ -48,6 +57,9 @@ def evaluate(
     model.eval()
     metrics = MetricState.create()
     image_rows = []
+    diagnostic_rows = []
+    aggregate_confusion = None
+    diagnostic_panel_paths = {}
     with torch.no_grad():
         for idx, batch in enumerate(tqdm(loader)):
             image = batch["image"].to(device)
@@ -58,9 +70,26 @@ def evaluate(
             image_metrics = MetricState.create()
             image_metrics.update(pred, target)
             image_result = image_metrics.compute(ignore_background=True)
+            prediction_array = pred.squeeze(0).cpu().numpy()
+            target_array = batch["target"].squeeze(0).cpu().numpy()
+            image_confusion = diagnostic_confusion_matrix(
+                prediction_array,
+                target_array,
+                num_classes=len(CLASS_NAMES),
+            )
+            aggregate_confusion = (
+                image_confusion.copy()
+                if aggregate_confusion is None
+                else aggregate_confusion + image_confusion
+            )
+            image_diagnostics = diagnostic_metrics_from_confusion(image_confusion)
+            image_id = batch["name"][0]
+            diagnostic_rows.append({"image_id": image_id, **image_diagnostics})
             error = pred.squeeze(0).cpu() != batch["target"].squeeze(0)
             panel_path = output_dir / "visualizations" / f"{idx:04d}_{batch['name'][0]}.png"
-            save_panel(panel_path, batch["image"].squeeze(0), batch["target"].squeeze(0), pred.squeeze(0).cpu(), error)
+            if not diagnostics_only or not panel_path.exists():
+                save_panel(panel_path, batch["image"].squeeze(0), batch["target"].squeeze(0), pred.squeeze(0).cpu(), error)
+            diagnostic_panel_paths[image_id] = panel_path
             image_rows.append(
                 {
                     "index": idx,
@@ -73,17 +102,27 @@ def evaluate(
             )
     result = metrics.compute(ignore_background=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    write_csv(output_dir / "image_manifest.csv", image_rows)
-    write_csv(output_dir / "metrics.csv", [{"model_name": cfg["model_name"], "experiment_type": cfg["experiment_type"], **result}])
-    worst_dir = output_dir / "worst_cases"
-    worst_rows = sorted(image_rows, key=lambda row: row["mIoU"])[: min(24, len(image_rows))]
-    for rank, row in enumerate(worst_rows, start=1):
-        source = Path(row["panel"])
-        destination = worst_dir / f"{rank:02d}_{source.name}"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        row["worst_case_panel"] = str(destination)
-    write_csv(output_dir / "worst_cases.csv", worst_rows)
+    write_diagnostic_outputs(
+        output_dir,
+        cfg["model_name"],
+        cfg["experiment_type"],
+        aggregate_confusion,
+        diagnostic_rows,
+        CLASS_NAMES,
+        diagnostic_panel_paths,
+    )
+    if not diagnostics_only:
+        write_csv(output_dir / "image_manifest.csv", image_rows)
+        write_csv(output_dir / "metrics.csv", [{"model_name": cfg["model_name"], "experiment_type": cfg["experiment_type"], **result}])
+        worst_dir = output_dir / "worst_cases"
+        worst_rows = sorted(image_rows, key=lambda row: row["mIoU"])[: min(24, len(image_rows))]
+        for rank, row in enumerate(worst_rows, start=1):
+            source = Path(row["panel"])
+            destination = worst_dir / f"{rank:02d}_{source.name}"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            row["worst_case_panel"] = str(destination)
+        write_csv(output_dir / "worst_cases.csv", worst_rows)
     print(json.dumps(result, indent=2))
     return result
 
@@ -97,6 +136,7 @@ def main() -> int:
     parser.add_argument("--split-dir", default="experiments/splits")
     parser.add_argument("--gpu", default="0")
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--diagnostics-only", action="store_true")
     args = parser.parse_args()
 
     os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
@@ -110,6 +150,7 @@ def main() -> int:
         Path(args.split_dir).resolve(),
         device,
         max_samples=args.max_samples,
+        diagnostics_only=args.diagnostics_only,
     )
     return 0
 

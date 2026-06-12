@@ -40,5 +40,14 @@ for config in "${CONFIGS[@]}"; do
     --test-after
 done
 
+DIAGNOSTIC_EXPERIMENTS=()
+for config in "${CONFIGS[@]}"; do
+  DIAGNOSTIC_EXPERIMENTS+=("$(basename "${config}" .py)")
+done
+python tools/run_affgrasp_diagnostics.py \
+  --output-root "${OUTPUT_ROOT}" \
+  --experiments "${DIAGNOSTIC_EXPERIMENTS[@]}" \
+  --summarize-only
+
 echo
 echo "All smoke tests finished. Outputs: ${OUTPUT_ROOT}/"
