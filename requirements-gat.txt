@@ -8,5 +8,4 @@ peft
 timm
 huggingface_hub==0.24.7
 hf_xet
-xformers
 ninja

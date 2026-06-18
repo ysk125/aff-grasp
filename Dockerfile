@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python -m pip install --upgrade pip setuptools wheel
 RUN python -m pip install \
-    torch torchvision torchaudio \
+    torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
     --index-url https://download.pytorch.org/whl/cu121
 
 COPY requirements-gat.txt /tmp/requirements-gat.txt
