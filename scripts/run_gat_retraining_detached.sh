@@ -5,8 +5,10 @@ GPU_ID="${1:-0}"
 CONTAINER_NAME="${2:-affgrasp-gat-train}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
-OUTPUT_DIR="${GAT_OUTPUT_DIR:-outputs/gat_retraining_cosine}"
-VALIDATION_OUTPUT_DIR="${GAT_VALIDATION_OUTPUT_DIR:-${OUTPUT_DIR}_data_validation}"
+OUTPUT_ROOT="${GAT_OUTPUT_ROOT:-outputs/gat_retraining}"
+RUN_NAME="${GAT_RUN_NAME:-}"
+RUN_LABEL="${RUN_NAME:-auto_$(date +%Y%m%d_%H%M%S)}"
+VALIDATION_OUTPUT_DIR="${GAT_VALIDATION_OUTPUT_DIR:-${OUTPUT_ROOT}/${RUN_LABEL}_data_validation}"
 NUM_WORKERS="${GAT_NUM_WORKERS:-4}"
 BATCH_SIZE="${GAT_BATCH_SIZE:-8}"
 EPOCHS="${GAT_EPOCHS:-15}"
@@ -44,7 +46,8 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
       --source-root upstream-aff-grasp/affordance-learning \
       --runtime-root affordance-learning \
       --data-root affordance-learning/ag_dataset \
-      --output-dir ${OUTPUT_DIR} \
+      --output-root ${OUTPUT_ROOT} \
+      ${RUN_NAME:+--run-name ${RUN_NAME}} \
       --scheduler ${SCHEDULER} \
       --epochs ${EPOCHS} \
       --batch-size ${BATCH_SIZE} \
@@ -54,5 +57,5 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
 
 echo "Started ${CONTAINER_NAME} on physical GPU ${GPU_ID}."
 echo "Follow logs: docker logs -f ${CONTAINER_NAME}"
-echo "Outputs: ${OUTPUT_DIR}"
+echo "Outputs root: ${OUTPUT_ROOT}"
 echo "Data validation outputs: ${VALIDATION_OUTPUT_DIR}"
