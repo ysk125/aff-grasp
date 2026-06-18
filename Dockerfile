@@ -29,11 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python -m pip install --upgrade pip setuptools wheel
 RUN python -m pip install \
-    torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
+    torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu121
+RUN python -c "import torch; print('torch:', torch.__version__, 'torch cuda:', torch.version.cuda); assert torch.version.cuda and torch.version.cuda.startswith('12.1'), torch.version.cuda"
 
 COPY requirements-gat.txt /tmp/requirements-gat.txt
-RUN python -m pip install -r /tmp/requirements-gat.txt
+RUN python -m pip install --index-url https://pypi.org/simple -r /tmp/requirements-gat.txt
+RUN python -c "import torch; print('torch after requirements:', torch.__version__, 'torch cuda:', torch.version.cuda); assert torch.version.cuda and torch.version.cuda.startswith('12.1'), torch.version.cuda"
 
 ARG USER_ID=1000
 ARG USER_NAME=user
