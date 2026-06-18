@@ -6,6 +6,7 @@ CONTAINER_NAME="${2:-affgrasp-gat-train}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 OUTPUT_DIR="${GAT_OUTPUT_DIR:-outputs/gat_retraining_cosine}"
+VALIDATION_OUTPUT_DIR="${GAT_VALIDATION_OUTPUT_DIR:-${OUTPUT_DIR}_data_validation}"
 NUM_WORKERS="${GAT_NUM_WORKERS:-4}"
 BATCH_SIZE="${GAT_BATCH_SIZE:-8}"
 EPOCHS="${GAT_EPOCHS:-15}"
@@ -37,7 +38,7 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
     source scripts/affgrasp_env.sh
     python -m experiments.affgrasp_gat.validate_data \
       --data-root affordance-learning/ag_dataset \
-      --output-dir ${OUTPUT_DIR}/data_validation \
+      --output-dir ${VALIDATION_OUTPUT_DIR} \
       --visualization-count 50
     python -m experiments.affgrasp_gat.train_gat \
       --source-root upstream-aff-grasp/affordance-learning \
@@ -54,4 +55,4 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
 echo "Started ${CONTAINER_NAME} on physical GPU ${GPU_ID}."
 echo "Follow logs: docker logs -f ${CONTAINER_NAME}"
 echo "Outputs: ${OUTPUT_DIR}"
-
+echo "Data validation outputs: ${VALIDATION_OUTPUT_DIR}"
