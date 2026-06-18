@@ -1,0 +1,12 @@
+numpy==1.26.4
+opencv-python
+pillow
+tqdm
+matplotlib
+scipy
+peft
+timm
+huggingface_hub==0.24.7
+hf_xet
+xformers
+ninja
