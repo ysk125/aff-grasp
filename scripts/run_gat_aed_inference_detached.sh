@@ -8,6 +8,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${AFF_GRASP_IMAGE:-$(id -un)-aff-grasp:cu121}"
 OUTPUT_DIR="${GAT_AED_OUTPUT_DIR:-analysis/gat_aed_$(date +%Y%m%d_%H%M%S)}"
 THRESHOLD="${GAT_AED_THRESHOLD:-0.8}"
+RUNTIME_TMP="${GAT_RUNTIME_TMP:-${ROOT_DIR}/.tmp/gat-aed-${CONTAINER_NAME}}"
 if [[ "${CHECKPOINT}" == /* || "${CHECKPOINT}" == "pretrained_aff_grasp.pth" ]]; then
   CHECKPOINT_ARG="${CHECKPOINT}"
 else
@@ -22,6 +23,7 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
+mkdir -p "${RUNTIME_TMP}"
 docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --name "${CONTAINER_NAME}" \
   --mount "type=bind,source=${ROOT_DIR},target=${ROOT_DIR}" \
@@ -32,9 +34,14 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
+  --env TMPDIR="${RUNTIME_TMP}" \
+  --env TMP="${RUNTIME_TMP}" \
+  --env TEMP="${RUNTIME_TMP}" \
+  --env TORCHINDUCTOR_CACHE_DIR="${RUNTIME_TMP}/torchinductor" \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
+    mkdir -p '${RUNTIME_TMP}' '${RUNTIME_TMP}/torchinductor'
     bash scripts/setup_gat_runtime.sh
     bash scripts/build_gat_ops.sh
     source scripts/affgrasp_env.sh

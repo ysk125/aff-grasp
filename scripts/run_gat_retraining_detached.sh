@@ -9,6 +9,7 @@ OUTPUT_ROOT="${GAT_OUTPUT_ROOT:-outputs/gat_retraining}"
 RUN_NAME="${GAT_RUN_NAME:-}"
 RUN_LABEL="${RUN_NAME:-auto_$(date +%Y%m%d_%H%M%S)}"
 VALIDATION_OUTPUT_DIR="${GAT_VALIDATION_OUTPUT_DIR:-${OUTPUT_ROOT}/${RUN_LABEL}_data_validation}"
+RUNTIME_TMP="${GAT_RUNTIME_TMP:-${ROOT_DIR}/.tmp/gat-train-${CONTAINER_NAME}}"
 NUM_WORKERS="${GAT_NUM_WORKERS:-4}"
 BATCH_SIZE="${GAT_BATCH_SIZE:-8}"
 EPOCHS="${GAT_EPOCHS:-15}"
@@ -22,6 +23,7 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
+mkdir -p "${RUNTIME_TMP}"
 docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --name "${CONTAINER_NAME}" \
   --mount "type=bind,source=${ROOT_DIR},target=${ROOT_DIR}" \
@@ -32,9 +34,14 @@ docker run --gpus "device=${GPU_ID}" --shm-size=8g -d \
   --env MKL_NUM_THREADS=4 \
   --env OPENBLAS_NUM_THREADS=4 \
   --env NUMEXPR_NUM_THREADS=4 \
+  --env TMPDIR="${RUNTIME_TMP}" \
+  --env TMP="${RUNTIME_TMP}" \
+  --env TEMP="${RUNTIME_TMP}" \
+  --env TORCHINDUCTOR_CACHE_DIR="${RUNTIME_TMP}/torchinductor" \
   "${IMAGE_NAME}" \
   bash -lc "
     set -euo pipefail
+    mkdir -p '${RUNTIME_TMP}' '${RUNTIME_TMP}/torchinductor'
     bash scripts/setup_gat_runtime.sh
     bash scripts/build_gat_ops.sh
     source scripts/affgrasp_env.sh
